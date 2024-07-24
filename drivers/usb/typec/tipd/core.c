@@ -1201,7 +1201,7 @@ release_fw:
 	release_firmware(fw);
 
 	return ret;
-};
+}
 
 static int cd321x_init(struct tps6598x *tps)
 {
