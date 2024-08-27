@@ -114,6 +114,10 @@ struct tca8418_keypad {
 	struct input_dev *input;
 
 	unsigned int row_shift;
+
+#ifdef _DARKGLASS_DEVICE_PABLITO
+	bool enc_pending[6];
+#endif
 };
 
 /*
@@ -178,6 +182,73 @@ static void tca8418_read_keypad(struct tca8418_keypad *keypad_data)
 		state = reg & KEY_EVENT_VALUE;
 		code  = reg & KEY_EVENT_CODE;
 
+#ifdef _DARKGLASS_DEVICE_PABLITO
+		switch (code) {
+		// clicks
+		case 0x66: code = 0x01; break;
+		case 0x70: code = 0x02; break;
+		case 0x6d: code = 0x03; break;
+		case 0x6a: code = 0x04; break;
+		case 0x62: code = 0x05; break;
+		case 0x65: code = 0x06; break;
+		// rotation left
+		case 0x67:
+		case 0x71:
+		case 0x6e:
+		case 0x6b:
+		case 0x61:
+		case 0x64:
+			switch (code) {
+			case 0x67: reg = 0; break;
+			case 0x71: reg = 1; break;
+			case 0x6e: reg = 2; break;
+			case 0x6b: reg = 3; break;
+			case 0x61: reg = 4; break;
+			case 0x64: reg = 5; break;
+			}
+			if (!keypad_data->enc_pending[reg]) {
+				keypad_data->enc_pending[reg] = true;
+				code = 2 * TCA8418_MAX_COLS + 1 + reg;
+				state |= 0x80;
+			} else {
+				keypad_data->enc_pending[reg] = false;
+				code = 1 * TCA8418_MAX_COLS + 1 + reg;
+				state &= ~0x80;
+			}
+			break;
+		// rotation right
+		case 0x68:
+		case 0x72:
+		case 0x6f:
+		case 0x6c:
+		case 0x69:
+		case 0x63:
+			switch (code) {
+				case 0x68: reg = 0; break;
+				case 0x72: reg = 1; break;
+				case 0x6f: reg = 2; break;
+				case 0x6c: reg = 3; break;
+				case 0x69: reg = 4; break;
+				case 0x63: reg = 5; break;
+			}
+			if (!keypad_data->enc_pending[reg]) {
+				keypad_data->enc_pending[reg] = true;
+				code = 1 * TCA8418_MAX_COLS + 1 + reg;
+				state |= 0x80;
+			} else {
+				keypad_data->enc_pending[reg] = false;
+				code = 2 * TCA8418_MAX_COLS + 1 + reg;
+				state &= ~0x80;
+			}
+			break;
+		default:
+			dev_err(&keypad_data->client->dev,
+					"tca8418_read_keypad reg(%02x) error(%d) state(%02x) code(%02x) | row(%02d) col(%02d)\n",
+					reg, error, state, code, row, col);
+			continue;
+		}
+#endif
+
 		row = code / TCA8418_MAX_COLS;
 		col = code % TCA8418_MAX_COLS;
 
@@ -236,6 +307,17 @@ static int tca8418_configure(struct tca8418_keypad *keypad_data,
 {
 	int reg, error = 0;
 
+#ifdef _DARKGLASS_DEVICE_PABLITO
+	/* Disable keypad mode */
+	error |= tca8418_write_byte(keypad_data, REG_KP_GPIO1, 0);
+	error |= tca8418_write_byte(keypad_data, REG_KP_GPIO2, 0);
+	error |= tca8418_write_byte(keypad_data, REG_KP_GPIO3, 0);
+
+	/* Enable GPI mode */
+	error |= tca8418_write_byte(keypad_data, REG_GPI_EM1, 0xff);
+	error |= tca8418_write_byte(keypad_data, REG_GPI_EM2, 0xff);
+	error |= tca8418_write_byte(keypad_data, REG_GPI_EM3, 0x03);
+#else
 	/* Assemble a mask for row and column registers */
 	reg  =  ~(~0 << rows);
 	reg += (~(~0 << cols)) << 8;
@@ -249,6 +331,7 @@ static int tca8418_configure(struct tca8418_keypad *keypad_data,
 	error |= tca8418_write_byte(keypad_data, REG_DEBOUNCE_DIS1, reg);
 	error |= tca8418_write_byte(keypad_data, REG_DEBOUNCE_DIS2, reg >> 8);
 	error |= tca8418_write_byte(keypad_data, REG_DEBOUNCE_DIS3, reg >> 16);
+#endif
 
 	if (error)
 		return error;
