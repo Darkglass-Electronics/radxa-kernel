@@ -12,10 +12,14 @@ struct pablito_ctrl_priv {
 	struct gpio_desc *gpiod_hp1;
 	struct gpio_desc *gpiod_hp2;
 	struct gpio_desc *gpiod_xlr_gl;
+	struct gpio_desc *gpiod_fx_exp;
+	struct gpio_desc *gpiod_capture_gl;
 
 	int hp_gain;
 	bool dac_mute;
 	bool xlr_gl;
+	bool fx_exp;
+	bool capture_gl;
 };
 
 static int pablito_ctrl_headphone_info(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
@@ -125,6 +129,52 @@ static int pablito_ctrl_xlr_gl_put(struct snd_kcontrol *kcontrol, struct snd_ctl
 	return changed;
 }
 
+static int pablito_ctrl_fx_exp_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *c = snd_soc_kcontrol_component(kcontrol);
+	struct pablito_ctrl_priv *priv = snd_soc_component_get_drvdata(c);
+
+	ucontrol->value.integer.value[0] = priv->fx_exp;
+	return 0;
+}
+
+static int pablito_ctrl_fx_exp_put(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *c = snd_soc_kcontrol_component(kcontrol);
+	struct pablito_ctrl_priv *priv = snd_soc_component_get_drvdata(c);
+	int changed = 0;
+
+	if (priv->fx_exp != ucontrol->value.integer.value[0]) {
+		priv->fx_exp = ucontrol->value.integer.value[0];
+		gpiod_set_value(priv->gpiod_fx_exp, priv->fx_exp);
+		changed = 1;
+	}
+	return changed;
+}
+
+static int pablito_ctrl_capt_gl_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *c = snd_soc_kcontrol_component(kcontrol);
+	struct pablito_ctrl_priv *priv = snd_soc_component_get_drvdata(c);
+
+	ucontrol->value.integer.value[0] = priv->capture_gl;
+	return 0;
+}
+
+static int pablito_ctrl_capt_gl_put(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *c = snd_soc_kcontrol_component(kcontrol);
+	struct pablito_ctrl_priv *priv = snd_soc_component_get_drvdata(c);
+	int changed = 0;
+
+	if (priv->capture_gl != ucontrol->value.integer.value[0]) {
+		priv->capture_gl = ucontrol->value.integer.value[0];
+		gpiod_set_value(priv->gpiod_capture_gl, priv->capture_gl);
+		changed = 1;
+	}
+	return changed;
+}
+
 static const struct snd_kcontrol_new pablito_snd_controls[] = {
 	{
 		.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
@@ -149,6 +199,22 @@ static const struct snd_kcontrol_new pablito_snd_controls[] = {
 		.info = pablito_ctrl_switch_info,
 		.get = pablito_ctrl_xlr_gl_get,
 		.put = pablito_ctrl_xlr_gl_put
+	},
+	{
+		.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
+		.name = "FX/Exp",
+		.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
+		.info = pablito_ctrl_switch_info,
+		.get = pablito_ctrl_fx_exp_get,
+		.put = pablito_ctrl_fx_exp_put
+	},
+	{
+		.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
+		.name = "Capture Ground Lift",
+		.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
+		.info = pablito_ctrl_switch_info,
+		.get = pablito_ctrl_capt_gl_get,
+		.put = pablito_ctrl_capt_gl_put
 	},
 };
 
@@ -184,15 +250,27 @@ static int pablito_ctrl_probe(struct platform_device *pdev)
 	if (IS_ERR(priv->gpiod_xlr_gl))
 		return dev_err_probe(dev, PTR_ERR(priv->gpiod_xlr_gl), "Failed to get 'xlr-gl' gpio");
 
+	priv->gpiod_fx_exp = devm_gpiod_get_optional(dev, "fx-exp", GPIOD_OUT_LOW);
+	if (IS_ERR(priv->gpiod_fx_exp))
+		return dev_err_probe(dev, PTR_ERR(priv->gpiod_fx_exp), "Failed to get 'fx-exp' gpio");
+
+	priv->gpiod_capture_gl = devm_gpiod_get_optional(dev, "capture-gl", GPIOD_OUT_LOW);
+	if (IS_ERR(priv->gpiod_capture_gl))
+		return dev_err_probe(dev, PTR_ERR(priv->gpiod_capture_gl), "Failed to get 'capture-gl' gpio");
+
 	// force initial known state
 	priv->hp_gain = 0;
 	priv->dac_mute = false;
 	priv->xlr_gl = false;
+	priv->fx_exp = false;
+	priv->capture_gl = false;
 
 	gpiod_set_value(priv->gpiod_dac_mute, 0);
 	gpiod_set_value(priv->gpiod_hp1, 1);
 	gpiod_set_value(priv->gpiod_hp2, 1);
 	gpiod_set_value(priv->gpiod_xlr_gl, 0);
+	gpiod_set_value(priv->gpiod_fx_exp, 0);
+	gpiod_set_value(priv->gpiod_capture_gl, 0);
 
 	return devm_snd_soc_register_component(dev, &pablito_ctrl_component_driver, NULL, 0);
 }
