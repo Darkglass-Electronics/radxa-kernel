@@ -1417,6 +1417,12 @@ static int tps6598x_probe(struct i2c_client *client)
 		ret = tps6598x_connect(tps, status);
 		if (ret)
 			dev_err(&client->dev, "failed to register partner\n");
+	} else {
+		if (tps6598x_read16(tps, TPS_REG_POWER_STATUS, &tps->pwr_status) == 0) {
+			ret = tps6598x_connect(tps, 0);
+			if (ret)
+				dev_err(&client->dev, "failed to register partner without plug\n");
+		}
 	}
 
 	if (client->irq) {
