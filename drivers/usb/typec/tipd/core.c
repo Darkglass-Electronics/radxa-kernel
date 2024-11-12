@@ -1089,12 +1089,6 @@ static int tps25750_apply_patch(struct tps6598x *tps)
 	ret = tps6598x_block_read(tps, TPS_REG_BOOT_STATUS, &status, 5);
 	if (ret)
 		return ret;
-	/*
-	 * Nothing to be done if the configuration
-	 * is being loaded from EERPOM
-	 */
-	if (status & TPS_BOOT_STATUS_I2C_EEPROM_PRESENT)
-		goto wait_for_app;
 
 	ret = tps25750_start_patch_burst_mode(tps);
 	if (ret) {
@@ -1106,7 +1100,6 @@ static int tps25750_apply_patch(struct tps6598x *tps)
 	if (ret)
 		return ret;
 
-wait_for_app:
 	timeout = jiffies + msecs_to_jiffies(1000);
 
 	do {
@@ -1118,6 +1111,48 @@ wait_for_app:
 			return -ETIMEDOUT;
 
 	} while (ret != TPS_MODE_APP);
+
+	/*
+	 * Flash EEPROM now if present
+	 */
+	if (status & TPS_BOOT_STATUS_I2C_EEPROM_PRESENT)
+	{
+		const struct firmware *fw;
+		const char *firmware_name;
+		u8 rc;
+		struct {
+			u8 addr;
+			u16 len;
+			u8 offset_msb;
+			u8 offset_lsb;
+			u8 data[8];
+		} __packed i2cw_data = {
+			0x50, 8 + 2, 0, 0, { 0 },
+		};
+
+		ret = device_property_read_string(tps->dev, "eeprom-firmware-name", &firmware_name);
+		if (ret)
+			return ret;
+
+		ret = request_firmware(&fw, firmware_name, tps->dev);
+		if (ret)
+			return ret;
+
+		for (unsigned int i = 0; i < fw->size; i += 8)
+		{
+			memcpy(i2cw_data.data, fw->data + i, 8);
+			i2cw_data.offset_msb = i / 0x100;
+			i2cw_data.offset_lsb = i % 0x100;
+
+			ret = tps6598x_exec_cmd_tmo(tps,"I2Cw", sizeof(i2cw_data), (const u8*)&i2cw_data, sizeof(rc), &rc, 2000, 0);
+			if (ret != 0) {
+				dev_err(tps->dev, "I2Cw failed with error code %d, return code %x\n", ret, rc);
+				break;
+			}
+		}
+
+		release_firmware(fw);
+	}
 
 	/*
 	 * The dead battery flag may be triggered when the controller
