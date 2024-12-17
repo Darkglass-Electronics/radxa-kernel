@@ -1078,12 +1078,6 @@ static int adcx140_codec_probe(struct snd_soc_component *component)
 		}
 	}
 
-	// Darkglass tweaks: disable HPF
-	ret = regmap_update_bits(adcx140->regmap, ADCX140_DSP_CFG0,
-							 GENMASK(1, 0), 0);
-	if (ret)
-		dev_err(adcx140->dev, "setting HPF failed %d\n", ret);
-
 	adcx140_pwr_ctrl(adcx140, true);
 out:
 	return ret;
