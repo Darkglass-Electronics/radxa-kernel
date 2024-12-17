@@ -1078,7 +1078,160 @@ static int adcx140_codec_probe(struct snd_soc_component *component)
 		}
 	}
 
+	// Darkglass tweaks: configure CH1_CFG0 (line input)
+	ret = regmap_update_bits(adcx140->regmap, ADCX140_CH1_CFG0,
+							 GENMASK(7, 2) | GENMASK(1, 0), BIT(7));
+	if (ret)
+		dev_err(adcx140->dev, "setting CH1_CFG0 failed %d\n", ret);
+
+	// Darkglass tweaks: configure CH1_CFG1 (channel gain at 0 dB)
+	ret = regmap_update_bits(adcx140->regmap, ADCX140_CH1_CFG1,
+							 GENMASK(7, 2), 0);
+	if (ret)
+		dev_err(adcx140->dev, "setting CH1_CFG1 failed %d\n", ret);
+
+	// Darkglass tweaks: configure CH1_CFG2 (digital volume at 0 dB)
+	ret = regmap_update_bits(adcx140->regmap, ADCX140_CH1_CFG2,
+							 GENMASK(7, 0), 0xc9); // 201
+	if (ret)
+		dev_err(adcx140->dev, "setting CH1_CFG2 failed %d\n", ret);
+
+	// Darkglass tweaks: configure CH1_CFG3 (gain calibration 0 dB)
+	ret = regmap_update_bits(adcx140->regmap, ADCX140_CH1_CFG3,
+							 GENMASK(7, 4), BIT(7));
+	if (ret)
+		dev_err(adcx140->dev, "setting CH1_CFG3 failed %d\n", ret);
+
+	// Darkglass tweaks: configure CH1_CFG4 (no phase calibration)
+	ret = regmap_update_bits(adcx140->regmap, ADCX140_CH1_CFG4,
+							 GENMASK(7, 0), 0);
+	if (ret)
+		dev_err(adcx140->dev, "setting CH1_CFG4 failed %d\n", ret);
+
+	// Darkglass tweaks: enable low-latency, channel summation disabled, HPF disabled
+	ret = regmap_update_bits(adcx140->regmap, ADCX140_DSP_CFG0,
+							 GENMASK(5, 0), BIT(4));
+	if (ret)
+		dev_err(adcx140->dev, "setting DSP_CFG0 failed %d\n", ret);
+
+	// Darkglass tweaks: disable biquads
+	ret = regmap_update_bits(adcx140->regmap, ADCX140_DSP_CFG1,
+							 GENMASK(6, 5), 0);
+	if (ret)
+		dev_err(adcx140->dev, "setting DSP_CFG1 failed %d\n", ret);
+
+	// Darkglass tweaks: enable CH1 (input 1 - 4)
+	ret = regmap_update_bits(adcx140->regmap, ADCX140_ASI_OUT_CH_EN,
+							 GENMASK(7, 0), BIT(7) | BIT(6) | BIT(5) | BIT(4));
+	if (ret)
+		dev_err(adcx140->dev, "setting ASI_OUT_CH_EN failed %d\n", ret);
+
 	adcx140_pwr_ctrl(adcx140, true);
+
+#if 0
+	// TESTING
+	{
+	const char *reg_name(int reg) {
+		#define REG_CASE(r) case r: return #r;
+		switch (reg) {
+		REG_CASE(ADCX140_PAGE_SELECT)
+		REG_CASE(ADCX140_SW_RESET)
+		REG_CASE(ADCX140_SLEEP_CFG)
+		REG_CASE(ADCX140_SHDN_CFG)
+		REG_CASE(ADCX140_ASI_CFG0)
+		REG_CASE(ADCX140_ASI_CFG1)
+		REG_CASE(ADCX140_ASI_CFG2)
+		REG_CASE(ADCX140_ASI_CH1)
+		REG_CASE(ADCX140_ASI_CH2)
+		REG_CASE(ADCX140_ASI_CH3)
+		REG_CASE(ADCX140_ASI_CH4)
+		REG_CASE(ADCX140_ASI_CH5)
+		REG_CASE(ADCX140_ASI_CH6)
+		REG_CASE(ADCX140_ASI_CH7)
+		REG_CASE(ADCX140_ASI_CH8)
+		REG_CASE(ADCX140_MST_CFG0)
+		REG_CASE(ADCX140_MST_CFG1)
+		REG_CASE(ADCX140_ASI_STS)
+		REG_CASE(ADCX140_CLK_SRC)
+		REG_CASE(ADCX140_PDMCLK_CFG)
+		REG_CASE(ADCX140_PDM_CFG)
+		REG_CASE(ADCX140_GPIO_CFG0)
+		REG_CASE(ADCX140_GPO_CFG0)
+		REG_CASE(ADCX140_GPO_CFG1)
+		REG_CASE(ADCX140_GPO_CFG2)
+		REG_CASE(ADCX140_GPO_CFG3)
+		REG_CASE(ADCX140_GPO_VAL)
+		REG_CASE(ADCX140_GPIO_MON)
+		REG_CASE(ADCX140_GPI_CFG0)
+		REG_CASE(ADCX140_GPI_CFG1)
+		REG_CASE(ADCX140_GPI_MON)
+		REG_CASE(ADCX140_INT_CFG)
+		REG_CASE(ADCX140_INT_MASK0)
+		REG_CASE(ADCX140_INT_LTCH0)
+		REG_CASE(ADCX140_BIAS_CFG)
+		REG_CASE(ADCX140_CH1_CFG0)
+		REG_CASE(ADCX140_CH1_CFG1)
+		REG_CASE(ADCX140_CH1_CFG2)
+		REG_CASE(ADCX140_CH1_CFG3)
+		REG_CASE(ADCX140_CH1_CFG4)
+		REG_CASE(ADCX140_CH2_CFG0)
+		REG_CASE(ADCX140_CH2_CFG1)
+		REG_CASE(ADCX140_CH2_CFG2)
+		REG_CASE(ADCX140_CH2_CFG3)
+		REG_CASE(ADCX140_CH2_CFG4)
+		REG_CASE(ADCX140_CH3_CFG0)
+		REG_CASE(ADCX140_CH3_CFG1)
+		REG_CASE(ADCX140_CH3_CFG2)
+		REG_CASE(ADCX140_CH3_CFG3)
+		REG_CASE(ADCX140_CH3_CFG4)
+		REG_CASE(ADCX140_CH4_CFG0)
+		REG_CASE(ADCX140_CH4_CFG1)
+		REG_CASE(ADCX140_CH4_CFG2)
+		REG_CASE(ADCX140_CH4_CFG3)
+		REG_CASE(ADCX140_CH4_CFG4)
+		REG_CASE(ADCX140_CH5_CFG2)
+		REG_CASE(ADCX140_CH5_CFG3)
+		REG_CASE(ADCX140_CH5_CFG4)
+		REG_CASE(ADCX140_CH6_CFG2)
+		REG_CASE(ADCX140_CH6_CFG3)
+		REG_CASE(ADCX140_CH6_CFG4)
+		REG_CASE(ADCX140_CH7_CFG2)
+		REG_CASE(ADCX140_CH7_CFG3)
+		REG_CASE(ADCX140_CH7_CFG4)
+		REG_CASE(ADCX140_CH8_CFG2)
+		REG_CASE(ADCX140_CH8_CFG3)
+		REG_CASE(ADCX140_CH8_CFG4)
+		REG_CASE(ADCX140_DSP_CFG0)
+		REG_CASE(ADCX140_DSP_CFG1)
+		REG_CASE(ADCX140_DRE_CFG0)
+		REG_CASE(ADCX140_AGC_CFG0)
+		REG_CASE(ADCX140_IN_CH_EN)
+		REG_CASE(ADCX140_ASI_OUT_CH_EN)
+		REG_CASE(ADCX140_PWR_CFG)
+		REG_CASE(ADCX140_DEV_STS0)
+		REG_CASE(ADCX140_DEV_STS1)
+		default: return "unknown";
+		}
+	};
+	for (int i = 0; i < ARRAY_SIZE(adcx140_reg_defaults); ++i)
+	{
+		u32 v = -1;
+		ret = regmap_read(adcx140->regmap, adcx140_reg_defaults[i].reg, &v);
+
+		if (ret)
+			dev_err(adcx140->dev, "getting reg %d failed %d\n", i, ret);
+		else
+			dev_err(adcx140->dev, "reg%02d %02d:%02x:%s current: %02x, default: %02x\n",
+					i,
+					adcx140_reg_defaults[i].reg,
+					adcx140_reg_defaults[i].reg,
+					reg_name(adcx140_reg_defaults[i].reg),
+					v,
+					adcx140_reg_defaults[i].def);
+	}
+	}
+#endif
+
 out:
 	return ret;
 }
