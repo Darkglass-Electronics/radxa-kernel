@@ -5063,6 +5063,50 @@ static const struct panel_desc_dsi osd101t2045_53ts = {
 	.lanes = 4,
 };
 
+static const struct drm_display_mode pablito_mode = {
+	.clock = 43000,
+	.hdisplay = 280,
+	.hsync_start = 280 + 150,
+	.hsync_end = 280 + 150 + 24,
+	.htotal = 280 + 150 + 24 + 40,
+	.vdisplay = 1424,
+	.vsync_start = 1424 + 12,
+	.vsync_end = 1424 + 12 + 6,
+	.vtotal = 1424 + 12 + 6 + 10,
+	.flags = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC,
+};
+
+static struct panel_cmd_seq pablito_init_seq;
+static struct panel_cmd_seq pablito_exit_seq;
+
+static const struct panel_desc_dsi pablito = {
+	.desc = {
+		.modes = &pablito_mode,
+		.num_modes = 1,
+		.bpc = 8,
+		.size = {
+			.width = 32,
+			.height = 70,
+		},
+		.delay = {
+			.prepare = 60,
+			.enable = 60,
+			.disable = 60,
+			.unprepare = 60,
+			.reset = 60,
+		},
+		.connector_type = DRM_MODE_CONNECTOR_DSI,
+		.init_seq = &pablito_init_seq,
+		.exit_seq = &pablito_exit_seq,
+	},
+	.flags = MIPI_DSI_MODE_VIDEO
+		| MIPI_DSI_MODE_VIDEO_BURST
+		| MIPI_DSI_MODE_LPM
+		| MIPI_DSI_MODE_NO_EOT_PACKET,
+	.format = MIPI_DSI_FMT_RGB888,
+	.lanes = 4,
+};
+
 static const struct of_device_id dsi_of_match[] = {
 	{
 		.compatible = "simple-panel-dsi",
@@ -5088,6 +5132,9 @@ static const struct of_device_id dsi_of_match[] = {
 	}, {
 		.compatible = "osddisplays,osd101t2045-53ts",
 		.data = &osd101t2045_53ts
+	}, {
+		.compatible = "pablito,display",
+		.data = &pablito
 	}, {
 		/* sentinel */
 	}
@@ -5141,6 +5188,29 @@ static int panel_simple_dsi_probe(struct mipi_dsi_device *dsi)
 	}
 
 	desc = id->data ? id->data : d;
+
+	if (desc->desc.init_seq == &pablito_init_seq && pablito_init_seq.cmd_cnt == 0) {
+		const void *data;
+		int len;
+
+		data = of_get_property(dsi->dev.of_node, "panel-init-sequence", &len);
+		if (data) {
+			err = panel_simple_parse_cmd_seq(dev, data, len, &pablito_init_seq);
+			if (err) {
+				dev_err(dev, "failed to parse init sequence\n");
+				return err;
+			}
+		}
+
+		data = of_get_property(dsi->dev.of_node, "panel-exit-sequence", &len);
+		if (data) {
+			err = panel_simple_parse_cmd_seq(dev, data, len, &pablito_exit_seq);
+			if (err) {
+				dev_err(dev, "failed to parse exit sequence\n");
+				return err;
+			}
+		}
+	}
 
 	err = panel_simple_probe(&dsi->dev, &desc->desc);
 	if (err < 0)
