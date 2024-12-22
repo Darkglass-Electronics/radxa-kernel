@@ -36,9 +36,6 @@ static void __rockchip_drm_fb_destroy(struct drm_framebuffer *fb)
 	if (is_rockchip_logo_fb(fb)) {
 		struct rockchip_drm_logo_fb *rockchip_logo_fb = to_rockchip_logo_fb(fb);
 
-#ifndef MODULE
-		rockchip_free_loader_memory(fb->dev);
-#endif
 		drm_gem_object_release(rockchip_logo_fb->fb.obj[0]);
 		kfree(rockchip_logo_fb);
 	} else {
