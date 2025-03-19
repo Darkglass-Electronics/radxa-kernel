@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 // Pablito hardware control
-// Copyright (C) 2024 Filipe Coelho <falktx@darkglass.com>
+// Copyright (C) 2024-2025 Filipe Coelho <falktx@darkglass.com>
 
 #include <linux/gpio/consumer.h>
 #include <linux/module.h>
@@ -152,7 +152,7 @@ static int pablito_ctrl_fx_exp_put(struct snd_kcontrol *kcontrol, struct snd_ctl
 	return changed;
 }
 
-static int pablito_ctrl_capt_gl_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
+static int pablito_ctrl_input_gl_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_soc_component *c = snd_soc_kcontrol_component(kcontrol);
 	struct pablito_ctrl_priv *priv = snd_soc_component_get_drvdata(c);
@@ -161,7 +161,7 @@ static int pablito_ctrl_capt_gl_get(struct snd_kcontrol *kcontrol, struct snd_ct
 	return 0;
 }
 
-static int pablito_ctrl_capt_gl_put(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
+static int pablito_ctrl_input_gl_put(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_soc_component *c = snd_soc_kcontrol_component(kcontrol);
 	struct pablito_ctrl_priv *priv = snd_soc_component_get_drvdata(c);
@@ -210,11 +210,11 @@ static const struct snd_kcontrol_new pablito_snd_controls[] = {
 	},
 	{
 		.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-		.name = "Capture Ground Lift",
+		.name = "Input Ground Lift",
 		.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
 		.info = pablito_ctrl_switch_info,
-		.get = pablito_ctrl_capt_gl_get,
-		.put = pablito_ctrl_capt_gl_put
+		.get = pablito_ctrl_input_gl_get,
+		.put = pablito_ctrl_input_gl_put
 	},
 };
 
