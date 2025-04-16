@@ -26,30 +26,16 @@
  */
 #define FBACK_FAST_MAX 5
 
-/* Feature Unit parameters */
-struct uac_fu_params {
-	int id;			/* Feature Unit ID */
-
-	bool mute_present;	/* mute control enable */
-
-	bool volume_present;	/* volume control enable */
-	s16 volume_min;		/* min volume in 1/256 dB */
-	s16 volume_max;		/* max volume in 1/256 dB */
-	s16 volume_res;		/* volume resolution in 1/256 dB */
-};
-
 struct uac_params {
 	/* playback */
 	int p_chmask;	/* channel mask */
-	int p_srates[UAC_MAX_RATES];	/* available rates in Hz (0 terminated list) */
-	int p_ssize;	/* sample size */
-	struct uac_fu_params p_fu;	/* Feature Unit parameters */
 
 	/* capture */
 	int c_chmask;	/* channel mask */
-	int c_srates[UAC_MAX_RATES];	/* available rates in Hz (0 terminated list) */
-	int c_ssize;	/* sample size */
-	struct uac_fu_params c_fu;	/* Feature Unit parameters */
+
+	/* common */
+	int srates[UAC_MAX_RATES];	/* available rates in Hz (0 terminated list) */
+	int ssize;	/* sample size */
 
 	/* rates are dynamic, in uac_rtd_params */
 
@@ -62,12 +48,7 @@ struct uac_params {
 enum usb_state_index {
 	SET_INTERFACE_OUT,
 	SET_INTERFACE_IN,
-	SET_SAMPLE_RATE_OUT,
-	SET_SAMPLE_RATE_IN,
-	SET_VOLUME_OUT,
-	SET_VOLUME_IN,
-	SET_MUTE_OUT,
-	SET_MUTE_IN,
+	SET_SAMPLE_RATE,
 	SET_AUDIO_CLK,
 	SET_USB_STATE_MAX,
 };
@@ -157,15 +138,8 @@ void u_audio_stop_capture(struct g_audio *g_audio);
 int u_audio_start_playback(struct g_audio *g_audio);
 void u_audio_stop_playback(struct g_audio *g_audio);
 
-int u_audio_get_capture_srate(struct g_audio *audio_dev, u32 *val);
-int u_audio_set_capture_srate(struct g_audio *audio_dev, int srate);
-int u_audio_get_playback_srate(struct g_audio *audio_dev, u32 *val);
-int u_audio_set_playback_srate(struct g_audio *audio_dev, int srate);
-
-int u_audio_get_volume(struct g_audio *g_audio, int playback, s16 *val);
-int u_audio_set_volume(struct g_audio *g_audio, int playback, s16 val);
-int u_audio_get_mute(struct g_audio *g_audio, int playback, int *val);
-int u_audio_set_mute(struct g_audio *g_audio, int playback, int val);
+int u_audio_get_srate(struct g_audio *audio_dev, u32 *val);
+int u_audio_set_srate(struct g_audio *audio_dev, int srate);
 
 void u_audio_suspend(struct g_audio *g_audio);
 
