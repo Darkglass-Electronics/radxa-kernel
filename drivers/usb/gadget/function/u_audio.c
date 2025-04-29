@@ -298,6 +298,7 @@ static void u_audio_iso_fback_complete(struct usb_ep *ep,
 		pr_debug("%s: iso_complete status(%d) %d/%d\n",
 			__func__, status, req->actual, req->length);
 
+	prm->pitch = 1000000 - audio_dev->params.ppm;
 	u_audio_set_fback_frequency(audio_dev->gadget->speed, audio_dev->out_ep,
 				    uac->srate, prm->pitch,
 				    req->buf);
