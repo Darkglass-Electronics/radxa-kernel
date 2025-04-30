@@ -505,18 +505,18 @@ int u_audio_set_srate(struct g_audio *audio_dev, int srate)
 	struct uac_params *params = &audio_dev->params;
 	struct snd_uac_chip *uac = audio_dev->uac;
 	int i;
-	unsigned long flags;
+	unsigned long c_flags, p_flags;
 
 	dev_dbg(&audio_dev->gadget->dev, "%s: srate %d\n", __func__, srate);
 	for (i = 0; i < UAC_MAX_RATES; i++) {
 		if (params->srates[i] == srate) {
-			spin_lock_irqsave(&uac->c_prm.lock, flags);
-			spin_lock_irqsave(&uac->p_prm.lock, flags);
+			spin_lock_irqsave(&uac->c_prm.lock, c_flags);
+			spin_lock_irqsave(&uac->p_prm.lock, p_flags);
 			uac->srate = srate;
 			audio_dev->usb_state[SET_SAMPLE_RATE] = true;
 			schedule_work(&audio_dev->work);
-			spin_unlock_irqrestore(&uac->p_prm.lock, flags);
-			spin_unlock_irqrestore(&uac->c_prm.lock, flags);
+			spin_unlock_irqrestore(&uac->p_prm.lock, p_flags);
+			spin_unlock_irqrestore(&uac->c_prm.lock, c_flags);
 			return 0;
 		}
 		if (params->srates[i] == 0)
@@ -530,13 +530,13 @@ EXPORT_SYMBOL_GPL(u_audio_set_srate);
 int u_audio_get_srate(struct g_audio *audio_dev, u32 *val)
 {
 	struct snd_uac_chip *uac = audio_dev->uac;
-	unsigned long flags;
+	unsigned long c_flags, p_flags;
 
-	spin_lock_irqsave(&uac->c_prm.lock, flags);
-	spin_lock_irqsave(&uac->p_prm.lock, flags);
+	spin_lock_irqsave(&uac->c_prm.lock, c_flags);
+	spin_lock_irqsave(&uac->p_prm.lock, p_flags);
 	*val = uac->srate;
-	spin_unlock_irqrestore(&uac->p_prm.lock, flags);
-	spin_unlock_irqrestore(&uac->c_prm.lock, flags);
+	spin_unlock_irqrestore(&uac->p_prm.lock, p_flags);
+	spin_unlock_irqrestore(&uac->c_prm.lock, c_flags);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(u_audio_get_srate);
@@ -865,17 +865,17 @@ static int u_audio_rate_get(struct snd_kcontrol *kcontrol,
 {
 	struct uac_rtd_params *prm = snd_kcontrol_chip(kcontrol);
 	struct snd_uac_chip *uac = prm->uac;
-	unsigned long flags;
+	unsigned long c_flags, p_flags;
 
-	spin_lock_irqsave(&uac->c_prm.lock, flags);
-	spin_lock_irqsave(&uac->p_prm.lock, flags);
+	spin_lock_irqsave(&uac->c_prm.lock, c_flags);
+	spin_lock_irqsave(&uac->p_prm.lock, p_flags);
 	if (prm->active)
 		ucontrol->value.integer.value[0] = uac->srate;
 	else
 		/* not active: reporting zero rate */
 		ucontrol->value.integer.value[0] = 0;
-	spin_unlock_irqrestore(&uac->p_prm.lock, flags);
-	spin_unlock_irqrestore(&uac->c_prm.lock, flags);
+	spin_unlock_irqrestore(&uac->p_prm.lock, p_flags);
+	spin_unlock_irqrestore(&uac->c_prm.lock, c_flags);
 	return 0;
 }
 
