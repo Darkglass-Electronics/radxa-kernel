@@ -25,7 +25,10 @@ enum {
 	UAC_RATE_CTRL,
 };
 
-#define CLK_PPM_GROUP_SIZE	20
+#define CLK_PPM_GROUP_SIZE	10
+
+/* incremented on i2s side for keeping sync */
+uint64_t uac_sync_samples = 0;
 
 /* shared mapped data */
 struct uac_mmap_data {
@@ -37,6 +40,7 @@ struct uac_mmap_data {
 	uint16_t buffer_size;
 	uint16_t bufpos_kernel;
 	uint16_t bufpos_userspace;
+	int32_t extra_ppm;
 	uint8_t buffer[];
 };
 
@@ -179,7 +183,7 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 		 */
 		unsigned long long p_interval_mil = uac->p_interval * 1000000ULL;
 
-		pitched_rate_mil = (unsigned long long) uac->srate * uac->pitch;
+		pitched_rate_mil = (unsigned long long) uac->srate * (uac->pitch + prm->mdata->extra_ppm);
 		div_result = pitched_rate_mil;
 		do_div(div_result, uac->p_interval);
 		do_div(div_result, 1000000);
@@ -276,9 +280,8 @@ static void u_audio_iso_fback_complete(struct usb_ep *ep,
 		pr_debug("%s: iso_complete status(%d) %d/%d\n",
 			__func__, status, req->actual, req->length);
 
-	uac->pitch = 1000000 - audio_dev->params.ppm;
 	u_audio_set_fback_frequency(audio_dev->gadget->speed, audio_dev->out_ep,
-				    uac->srate, uac->pitch,
+				    uac->srate, uac->pitch + prm->mdata->extra_ppm,
 				    req->buf);
 
 	if (usb_ep_queue(ep, req, GFP_ATOMIC))
@@ -781,6 +784,7 @@ static void ppm_calculate_work(struct work_struct *data)
 	struct g_audio *g_audio = container_of(data, struct g_audio,
 					       ppm_work.work);
 	struct usb_gadget *gadget = g_audio->gadget;
+	struct snd_uac_chip *uac = g_audio->uac;
 	uint32_t frame_number, fn_msec, clk_msec;
 	struct frame_number_data *fn = g_audio->fn;
 	uint64_t time_now, time_msec_tmp;
@@ -789,7 +793,24 @@ static void ppm_calculate_work(struct work_struct *data)
 	static int32_t ppm_sum;
 	int32_t cnt = fn->second % CLK_PPM_GROUP_SIZE;
 
-	time_now = ktime_get_raw();
+	// time_now = ktime_get_raw();
+	time_now = __atomic_load_n(&uac_sync_samples, __ATOMIC_SEQ_CST);
+
+	if (time_now < uac->srate) {
+		if (g_audio->fn->time_last) {
+			memset(g_audio->fn, 0, sizeof(*g_audio->fn));
+
+			g_audio->params.ppm = 0;
+			uac->pitch = 1000000;
+
+			g_audio->usb_state[SET_AUDIO_CLK] = true;
+			schedule_work(&g_audio->work);
+			// dev_warn(g_audio->device, "PPM is now reset\n");
+		}
+		goto out;
+	}
+
+	time_now = time_now * 1000000000ULL / uac->srate;
 	frame_number = gadget->ops->get_frame(gadget);
 
 	if (g_audio->fn->time_last &&
@@ -862,14 +883,16 @@ static void ppm_calculate_work(struct work_struct *data)
 	 * latest frame number is too far from the average, no event will
 	 * be sent.
 	 */
-	if (abs(ppm_sum / CLK_PPM_GROUP_SIZE - ppm) < 3) {
+	if (abs(ppm_sum / CLK_PPM_GROUP_SIZE - ppm) < 6) {
 		ppm = ppm_sum > 0 ?
 		      (ppm_sum + CLK_PPM_GROUP_SIZE / 2) / CLK_PPM_GROUP_SIZE :
 		      (ppm_sum - CLK_PPM_GROUP_SIZE / 2) / CLK_PPM_GROUP_SIZE;
 		if (ppm != g_audio->params.ppm) {
 			g_audio->params.ppm = ppm;
+			uac->pitch = 1000000 - ppm;
 			g_audio->usb_state[SET_AUDIO_CLK] = true;
 			schedule_work(&g_audio->work);
+			// dev_warn(g_audio->device, "PPM is now %d | extra_ppm %d\n", ppm, uac->c_prm.mdata->extra_ppm);
 		}
 	}
 
