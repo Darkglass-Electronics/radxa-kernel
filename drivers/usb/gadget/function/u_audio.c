@@ -36,10 +36,10 @@ struct uac_mmap_data {
 	uint8_t active_userspace;
 	uint8_t data_size; // same as format
 	uint8_t num_channels;
-	uint16_t sample_rate;
-	uint16_t buffer_size;
-	uint16_t bufpos_kernel;
-	uint16_t bufpos_userspace;
+	uint32_t sample_rate;
+	uint32_t buffer_size;
+	uint32_t bufpos_kernel;
+	uint32_t bufpos_userspace;
 	int32_t extra_ppm;
 	uint8_t buffer[];
 };
@@ -889,7 +889,7 @@ static void ppm_calculate_work(struct work_struct *data)
 		      (ppm_sum - CLK_PPM_GROUP_SIZE / 2) / CLK_PPM_GROUP_SIZE;
 		if (ppm != g_audio->params.ppm) {
 			g_audio->params.ppm = ppm;
-			uac->pitch = 1000000 - ppm;
+			uac->pitch = 1000000 + ppm;
 			g_audio->usb_state[SET_AUDIO_CLK] = true;
 			schedule_work(&g_audio->work);
 			// dev_warn(g_audio->device, "PPM is now %d | extra_ppm %d\n", ppm, uac->c_prm.mdata->extra_ppm);
@@ -905,7 +905,7 @@ int g_audio_setup(struct g_audio *g_audio, const char *pcm_name,
 {
 	struct snd_uac_chip *uac;
 	struct uac_params *params;
-	uint16_t buffer_size, channels;
+	uint32_t buffer_size, channels;
 	int p_chmask, c_chmask;
 	int err;
 
@@ -956,7 +956,7 @@ int g_audio_setup(struct g_audio *g_audio, const char *pcm_name,
 		}
 
 		channels = num_channels(c_chmask);
-		buffer_size = 128 * channels * params->ssize;
+		buffer_size = 8192 * channels * params->ssize;
 		prm->mdata = vmalloc_user(sizeof(struct uac_mmap_data) + buffer_size);
 		if (!prm->mdata) {
 			prm->max_psize = 0;
@@ -995,7 +995,7 @@ int g_audio_setup(struct g_audio *g_audio, const char *pcm_name,
 		}
 
 		channels = num_channels(p_chmask);
-		buffer_size = 128 * channels * params->ssize;
+		buffer_size = 8192 * channels * params->ssize;
 		prm->mdata = vmalloc_user(sizeof(struct uac_mmap_data) + buffer_size);
 		if (!prm->mdata) {
 			prm->max_psize = 0;
