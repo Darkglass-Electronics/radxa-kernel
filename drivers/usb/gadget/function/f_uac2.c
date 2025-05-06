@@ -307,7 +307,7 @@ static struct usb_endpoint_descriptor fs_epin_fback_desc = {
 
 	.bEndpointAddress = USB_DIR_IN,
 	.bmAttributes = USB_ENDPOINT_XFER_ISOC | USB_ENDPOINT_USAGE_FEEDBACK,
-	.wMaxPacketSize = cpu_to_le16(3),
+	.wMaxPacketSize = cpu_to_le16(4),
 	.bInterval = 1,
 };
 

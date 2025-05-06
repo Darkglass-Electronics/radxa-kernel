@@ -19,12 +19,6 @@
 
 #include "u_audio.h"
 
-enum {
-	UAC_FBACK_CTRL,
-	UAC_P_PITCH_CTRL,
-	UAC_RATE_CTRL,
-};
-
 #define CLK_PPM_GROUP_SIZE	10
 
 /* incremented on i2s side for keeping sync */
@@ -80,7 +74,6 @@ struct snd_uac_chip {
 	struct uac_rtd_params c_prm;
 
 	int srate; /* selected samplerate */
-	unsigned int pitch;	/* Stream pitch ratio to 1000000 */
 
 	/* pre-calculated values for playback iso completion */
 	unsigned long long p_residue_mil;
@@ -183,14 +176,17 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 		 */
 		unsigned long long p_interval_mil = uac->p_interval * 1000000ULL;
 
-		pitched_rate_mil = (unsigned long long) uac->srate * (uac->pitch + prm->mdata->extra_ppm);
+		pitched_rate_mil = (unsigned long long) uac->srate * (1000000 - audio_dev->params.ppm + prm->mdata->extra_ppm);
 		div_result = pitched_rate_mil;
 		do_div(div_result, uac->p_interval);
 		do_div(div_result, 1000000);
 		frames = (unsigned int) div_result;
 
 		pr_debug("srate %d, pitch %d, interval_mil %llu, frames %d\n",
-				uac->srate, uac->pitch, p_interval_mil, frames);
+				uac->srate,
+				1000000 + audio_dev->params.ppm + prm->mdata->extra_ppm,
+				p_interval_mil,
+				frames);
 
 		p_pktsize = min_t(unsigned int,
 					uac->p_framesize * frames,
@@ -281,7 +277,7 @@ static void u_audio_iso_fback_complete(struct usb_ep *ep,
 			__func__, status, req->actual, req->length);
 
 	u_audio_set_fback_frequency(audio_dev->gadget->speed, audio_dev->out_ep,
-				    uac->srate, uac->pitch + prm->mdata->extra_ppm,
+				    uac->srate, 1000000 - audio_dev->params.ppm + prm->mdata->extra_ppm,
 				    req->buf);
 
 	if (usb_ep_queue(ep, req, GFP_ATOMIC))
@@ -468,6 +464,7 @@ static void set_active(struct uac_rtd_params *prm, bool active)
 		prm->active = active;
 		prm->mdata->active_kernel = active;
 		prm->mdata->bufpos_kernel = 0;
+		prm->mdata->extra_ppm = 0;
 		memset(prm->mdata->buffer, 0, prm->mdata->buffer_size);
 	}
 	spin_unlock_irqrestore(&prm->lock, flags);
@@ -486,7 +483,6 @@ int u_audio_set_srate(struct g_audio *audio_dev, int srate)
 			spin_lock_irqsave(&uac->c_prm.lock, c_flags);
 			spin_lock_irqsave(&uac->p_prm.lock, p_flags);
 			uac->srate = srate;
-			uac->pitch = 1000000;
 			uac->c_prm.mdata->sample_rate = srate;
 			uac->p_prm.mdata->sample_rate = srate;
 			audio_dev->usb_state[SET_SAMPLE_RATE] = true;
@@ -600,9 +596,8 @@ int u_audio_start_capture(struct g_audio *audio_dev)
 	 * Always start with original frequency since its deviation can't
 	 * be meauserd at start of playback
 	 */
-	uac->pitch = 1000000;
 	u_audio_set_fback_frequency(audio_dev->gadget->speed, ep,
-				    uac->srate, uac->pitch,
+				    uac->srate, 1000000,
 				    req_fback->buf);
 
 	if (usb_ep_queue(ep_fback, req_fback, GFP_ATOMIC))
@@ -799,10 +794,7 @@ static void ppm_calculate_work(struct work_struct *data)
 	if (time_now < uac->srate) {
 		if (g_audio->fn->time_last) {
 			memset(g_audio->fn, 0, sizeof(*g_audio->fn));
-
 			g_audio->params.ppm = 0;
-			uac->pitch = 1000000;
-
 			g_audio->usb_state[SET_AUDIO_CLK] = true;
 			schedule_work(&g_audio->work);
 			// dev_warn(g_audio->device, "PPM is now reset\n");
@@ -889,7 +881,6 @@ static void ppm_calculate_work(struct work_struct *data)
 		      (ppm_sum - CLK_PPM_GROUP_SIZE / 2) / CLK_PPM_GROUP_SIZE;
 		if (ppm != g_audio->params.ppm) {
 			g_audio->params.ppm = ppm;
-			uac->pitch = 1000000 + ppm;
 			g_audio->usb_state[SET_AUDIO_CLK] = true;
 			schedule_work(&g_audio->work);
 			// dev_warn(g_audio->device, "PPM is now %d | extra_ppm %d\n", ppm, uac->c_prm.mdata->extra_ppm);
@@ -923,7 +914,6 @@ int g_audio_setup(struct g_audio *g_audio, const char *pcm_name,
 	c_chmask = params->c_chmask;
 
 	uac->srate = params->srates[0];
-	uac->pitch = 1000000;
 
 	g_audio->fn = kzalloc(sizeof(*g_audio->fn), GFP_KERNEL);
 	if (!g_audio->fn) {
