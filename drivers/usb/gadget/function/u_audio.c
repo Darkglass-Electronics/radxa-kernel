@@ -74,6 +74,7 @@ struct snd_uac_chip {
 	struct uac_rtd_params c_prm;
 
 	int srate; /* selected samplerate */
+	bool fb_received; /* whether feedback ep actually works */
 
 	/* pre-calculated values for playback iso completion */
 	unsigned long long p_residue_mil;
@@ -163,10 +164,6 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 		pr_debug("%s: iso_complete status(%d) %d/%d\n",
 			__func__, status, req->actual, req->length);
 
-	if (mdata->active_userspace <= 1) {
-		goto exit;
-	}
-
 	if (prm->playback) {
 		/*
 		 * For each IN packet, take the quotient of the current data
@@ -176,7 +173,10 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 		 */
 		unsigned long long p_interval_mil = uac->p_interval * 1000000ULL;
 
-		pitched_rate_mil = (unsigned long long) uac->srate * (1000000 - audio_dev->params.ppm + prm->mdata->extra_ppm);
+		if (uac->fb_received)
+			pitched_rate_mil = (unsigned long long) uac->srate * 1000000;
+		else
+			pitched_rate_mil = (unsigned long long) uac->srate * (1000000 - audio_dev->params.ppm + prm->mdata->extra_ppm);
 		div_result = pitched_rate_mil;
 		do_div(div_result, uac->p_interval);
 		do_div(div_result, 1000000);
@@ -245,7 +245,6 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 	hw_ptr = (hw_ptr + req->actual) % mdata->buffer_size;
 	__atomic_store_n(&mdata->bufpos_kernel, hw_ptr, __ATOMIC_RELEASE);
 
-exit:
 	if (usb_ep_queue(ep, req, GFP_ATOMIC))
 		dev_err(audio_dev->device, "%d Error!\n", __LINE__);
 }
@@ -275,6 +274,8 @@ static void u_audio_iso_fback_complete(struct usb_ep *ep,
 	if (status)
 		pr_debug("%s: iso_complete status(%d) %d/%d\n",
 			__func__, status, req->actual, req->length);
+	else
+		uac->fb_received = true;
 
 	u_audio_set_fback_frequency(audio_dev->gadget->speed, audio_dev->out_ep,
 				    uac->srate, 1000000 - audio_dev->params.ppm + prm->mdata->extra_ppm,
@@ -542,6 +543,9 @@ int u_audio_start_capture(struct g_audio *audio_dev)
 	ep = audio_dev->out_ep;
 	config_ep_by_speed(gadget, &audio_dev->func, ep);
 	req_len = ep->maxpacket;
+
+	/* check if we receive feedback requests */
+	uac->fb_received = false;
 
 	prm->ep_enabled = true;
 	usb_ep_enable(ep);
