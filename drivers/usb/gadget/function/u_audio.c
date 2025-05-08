@@ -143,6 +143,7 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 	struct uac_mmap_data *mdata = prm->mdata;
 	struct snd_uac_chip *uac = prm->uac;
 	struct g_audio *audio_dev = uac->audio_dev;
+	int ppm;
 	unsigned int frames, p_pktsize;
 	unsigned long long pitched_rate_mil, p_pktsize_residue_mil,
 			residue_frames_mil, div_result;
@@ -173,10 +174,13 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 		 */
 		unsigned long long p_interval_mil = uac->p_interval * 1000000ULL;
 
-		if (uac->fb_received)
-			pitched_rate_mil = (unsigned long long) uac->srate * 1000000;
+		ppm = - audio_dev->params.ppm;
+		if (! uac->fb_received && uac->c_prm.active)
+			ppm += (prm->mdata->extra_ppm + uac->c_prm.mdata->extra_ppm) / 2;
 		else
-			pitched_rate_mil = (unsigned long long) uac->srate * (1000000 - audio_dev->params.ppm + prm->mdata->extra_ppm);
+			ppm += prm->mdata->extra_ppm;
+
+		pitched_rate_mil = (unsigned long long) uac->srate * (1000000 + ppm);
 		div_result = pitched_rate_mil;
 		do_div(div_result, uac->p_interval);
 		do_div(div_result, 1000000);
@@ -184,7 +188,7 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 
 		pr_debug("srate %d, pitch %d, interval_mil %llu, frames %d\n",
 				uac->srate,
-				1000000 + audio_dev->params.ppm + prm->mdata->extra_ppm,
+				1000000 + ppm,
 				p_interval_mil,
 				frames);
 
@@ -887,7 +891,8 @@ static void ppm_calculate_work(struct work_struct *data)
 			g_audio->params.ppm = ppm;
 			g_audio->usb_state[SET_AUDIO_CLK] = true;
 			schedule_work(&g_audio->work);
-			// dev_warn(g_audio->device, "PPM is now %d | extra_ppm %d\n", ppm, uac->c_prm.mdata->extra_ppm);
+			// dev_warn(g_audio->device, "PPM is now %d | fb_received %d | extra_ppm %d\n",
+			// 		 ppm, uac->fb_received, uac->c_prm.mdata->extra_ppm);
 		}
 	}
 
