@@ -74,7 +74,7 @@ struct snd_uac_chip {
 	struct uac_rtd_params c_prm;
 
 	int srate; /* selected samplerate */
-	bool fb_received; /* whether feedback ep actually works */
+	uint64_t fb_received_time; /* time of last received feedback ep */
 
 	/* pre-calculated values for playback iso completion */
 	unsigned long long p_residue_mil;
@@ -175,7 +175,7 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 		unsigned long long p_interval_mil = uac->p_interval * 1000000ULL;
 
 		ppm = - audio_dev->params.ppm;
-		if (! uac->fb_received && uac->c_prm.active)
+		if (uac->c_prm.active && uac->fb_received_time != 0 && ktime_get_raw() - uac->fb_received_time < 5000000 /* 5ms */)
 			ppm += (prm->mdata->extra_ppm + uac->c_prm.mdata->extra_ppm) / 2;
 		else
 			ppm += prm->mdata->extra_ppm;
@@ -275,11 +275,13 @@ static void u_audio_iso_fback_complete(struct usb_ep *ep,
 	 * We can't really do much about bad xfers.
 	 * Afterall, the ISOCH xfers could fail legitimately.
 	 */
-	if (status)
+	if (status) {
+		uac->fb_received_time = 0;
 		pr_debug("%s: iso_complete status(%d) %d/%d\n",
 			__func__, status, req->actual, req->length);
-	else
-		uac->fb_received = true;
+	} else {
+		uac->fb_received_time = ktime_get_raw();
+	}
 
 	u_audio_set_fback_frequency(audio_dev->gadget->speed, audio_dev->out_ep,
 				    uac->srate, 1000000 - audio_dev->params.ppm + prm->mdata->extra_ppm,
@@ -549,7 +551,7 @@ int u_audio_start_capture(struct g_audio *audio_dev)
 	req_len = ep->maxpacket;
 
 	/* check if we receive feedback requests */
-	uac->fb_received = false;
+	uac->fb_received_time = 0;
 
 	prm->ep_enabled = true;
 	usb_ep_enable(ep);
@@ -891,8 +893,8 @@ static void ppm_calculate_work(struct work_struct *data)
 			g_audio->params.ppm = ppm;
 			g_audio->usb_state[SET_AUDIO_CLK] = true;
 			schedule_work(&g_audio->work);
-			// dev_warn(g_audio->device, "PPM is now %d | fb_received %d | extra_ppm %d\n",
-			// 		 ppm, uac->fb_received, uac->c_prm.mdata->extra_ppm);
+			// dev_warn(g_audio->device, "PPM is now %d | fb_received_time %llu | %llu | c extra_ppm %d | p extra_ppm %d\n",
+			// 		 ppm, uac->fb_received_time, ktime_get_raw() - uac->fb_received_time, uac->c_prm.mdata->extra_ppm, uac->p_prm.mdata->extra_ppm);
 		}
 	}
 
