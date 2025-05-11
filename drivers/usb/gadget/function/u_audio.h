@@ -45,14 +45,6 @@ struct uac_params {
 	int fb_max;	/* upper frequency drift feedback limit per-mil */
 };
 
-enum usb_state_index {
-	SET_INTERFACE_OUT,
-	SET_INTERFACE_IN,
-	SET_SAMPLE_RATE,
-	SET_AUDIO_CLK,
-	SET_USB_STATE_MAX,
-};
-
 enum stream_state_index {
 	STATE_OUT,
 	STATE_IN,
@@ -69,9 +61,7 @@ struct frame_number_data {
 
 struct g_audio {
 	struct device *device;
-	bool usb_state[SET_USB_STATE_MAX];
 	bool stream_state[2];
-	struct work_struct work;
 
 	struct frame_number_data *fn;
 	struct delayed_work ppm_work;
@@ -89,9 +79,6 @@ struct g_audio {
 	unsigned int in_ep_maxpsize;
 	/* Max packet size for all out_ep possible speeds */
 	unsigned int out_ep_maxpsize;
-
-	/* Notify UAC driver about control change */
-	int (*notify)(struct g_audio *g_audio, int unit_id, int cs);
 
 	/* The ALSA Sound Card it represents on the USB-Client side */
 	struct snd_uac_chip *uac;
