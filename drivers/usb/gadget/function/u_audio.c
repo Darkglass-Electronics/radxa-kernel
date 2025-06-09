@@ -997,6 +997,7 @@ void g_audio_cleanup(struct g_audio *g_audio)
 	g_audio->device = NULL;
 
 	uac = g_audio->uac;
+	g_audio->uac = NULL;
 
 	kfree(uac->p_prm.reqs);
 	kfree(uac->c_prm.reqs);
