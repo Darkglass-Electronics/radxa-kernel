@@ -35,6 +35,8 @@ struct uac_mmap_data {
 	uint32_t bufpos_kernel;
 	uint32_t bufpos_userspace;
 	int32_t extra_ppm;
+	int32_t volume;
+	uint8_t mute;
 	uint8_t buffer[];
 };
 
@@ -723,6 +725,63 @@ void u_audio_suspend(struct g_audio *audio_dev)
 	set_active(&uac->c_prm, false);
 }
 EXPORT_SYMBOL_GPL(u_audio_suspend);
+
+int u_audio_get_volume(struct g_audio *audio_dev, s16 *val)
+{
+	struct snd_uac_chip *uac = audio_dev->uac;
+	struct uac_rtd_params *prm = &uac->c_prm;
+	unsigned long flags;
+
+	spin_lock_irqsave(&prm->lock, flags);
+	*val = prm->mdata->volume;
+	spin_unlock_irqrestore(&prm->lock, flags);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(u_audio_get_volume);
+
+int u_audio_set_volume(struct g_audio *audio_dev, s16 val)
+{
+	struct snd_uac_chip *uac = audio_dev->uac;
+	struct uac_rtd_params *prm = &uac->c_prm;
+	unsigned long flags;
+
+	spin_lock_irqsave(&prm->lock, flags);
+	prm->mdata->volume = clamp(val, -70 * 256, 0);
+	spin_unlock_irqrestore(&prm->lock, flags);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(u_audio_set_volume);
+
+int u_audio_get_mute(struct g_audio *audio_dev, int *val)
+{
+	struct snd_uac_chip *uac = audio_dev->uac;
+	struct uac_rtd_params *prm = &uac->c_prm;
+	unsigned long flags;
+
+	spin_lock_irqsave(&prm->lock, flags);
+	*val = prm->mdata->mute;
+	spin_unlock_irqrestore(&prm->lock, flags);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(u_audio_get_mute);
+
+int u_audio_set_mute(struct g_audio *audio_dev, int val)
+{
+	struct snd_uac_chip *uac = audio_dev->uac;
+	struct uac_rtd_params *prm = &uac->c_prm;
+	int mute = val ? 1 : 0;
+	unsigned long flags;
+
+	spin_lock_irqsave(&prm->lock, flags);
+	prm->mdata->mute = mute;
+	spin_unlock_irqrestore(&prm->lock, flags);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(u_audio_set_mute);
 
 static void ppm_calculate_work(struct work_struct *data)
 {
