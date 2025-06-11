@@ -17,6 +17,8 @@
 #include <linux/proc_fs.h>
 #include <linux/usb/audio.h>
 
+#include <linux/highmem.h>
+
 #include "u_audio.h"
 
 #define CLK_PPM_GROUP_SIZE	10
@@ -233,23 +235,31 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 
 	if (prm->playback) {
 		if (unlikely(pending < req->actual)) {
+			invalidate_kernel_vmap_range(mdata->buffer + hw_ptr, pending);
+			invalidate_kernel_vmap_range(mdata->buffer, req->actual - pending);
 			memcpy(req->buf, mdata->buffer + hw_ptr, pending);
 			memcpy(req->buf + pending, mdata->buffer, req->actual - pending);
 		} else {
+			invalidate_kernel_vmap_range(mdata->buffer + hw_ptr, req->actual);
 			memcpy(req->buf, mdata->buffer + hw_ptr, req->actual);
 		}
 	} else {
 		if (unlikely(pending < req->actual)) {
 			memcpy(mdata->buffer + hw_ptr, req->buf, pending);
 			memcpy(mdata->buffer, req->buf + pending, req->actual - pending);
+			flush_kernel_vmap_range(mdata->buffer + hw_ptr, pending);
+			flush_kernel_vmap_range(mdata->buffer, req->actual - pending);
 		} else {
 			memcpy(mdata->buffer + hw_ptr, req->buf, req->actual);
+			flush_kernel_vmap_range(mdata->buffer + hw_ptr, req->actual);
 		}
 	}
 
 	/* update hw_ptr after data is copied to memory */
 	hw_ptr = (hw_ptr + req->actual) % mdata->buffer_size;
 	__atomic_store_n(&mdata->bufpos_kernel, hw_ptr, __ATOMIC_RELEASE);
+
+	flush_kernel_vmap_range(&mdata->bufpos_kernel, sizeof(uint32_t));
 
 	if (usb_ep_queue(ep, req, GFP_ATOMIC))
 		dev_err(audio_dev->device, "%d Error!\n", __LINE__);
