@@ -189,6 +189,14 @@ struct panel_desc {
 	int (*spi_write)(struct device *dev, const u8 *data, size_t len, u8 type);
 };
 
+struct panel_desc_dsi {
+	struct panel_desc desc;
+
+	unsigned long flags;
+	enum mipi_dsi_pixel_format format;
+	unsigned int lanes;
+};
+
 struct panel_simple {
 	struct drm_panel base;
 	struct mipi_dsi_device *dsi;
@@ -219,6 +227,15 @@ struct panel_simple {
 	struct drm_dsc_picture_parameter_set *pps;
 	enum drm_panel_orientation orientation;
 };
+
+static struct panel_cmd_seq pablito_init_seq;
+static struct panel_cmd_seq pablito_init_seq_FL7703NI;
+static struct panel_cmd_seq pablito_exit_seq;
+
+static const struct drm_display_mode pablito_mode;
+static const struct drm_display_mode pablito_mode_FL7703NI;
+
+static struct panel_desc_dsi pablito;
 
 static inline void panel_simple_msleep(unsigned int msecs)
 {
@@ -637,6 +654,103 @@ static int panel_simple_resume(struct device *dev)
 	return 0;
 }
 
+static void panel_simple_debug(struct drm_panel *panel)
+{
+	struct panel_simple *p = to_panel_simple(panel);
+
+	ssize_t ret;
+	u8 value[5] = { 0 };
+
+	ret = mipi_dsi_dcs_read(p->dsi, MIPI_DCS_GET_DISPLAY_STATUS, value, 4);
+	if (ret >= 0)
+		dev_err(panel->dev, "MIPI_DCS_GET_DISPLAY_STATUS %d | %02x %02x %02x %02x", (int)ret, value[0], value[1], value[2], value[3]);
+	else
+		dev_err(panel->dev, "MIPI_DCS_GET_DISPLAY_STATUS fail %d\n", (int)ret);
+
+	ret = mipi_dsi_dcs_read(p->dsi, MIPI_DCS_GET_DISPLAY_ID, value, 3);
+	if (ret >= 0)
+		dev_err(panel->dev, "MIPI_DCS_GET_DISPLAY_ID %d | %02x %02x %02x", (int)ret, value[0], value[1], value[2]);
+	else
+		dev_err(panel->dev, "MIPI_DCS_GET_DISPLAY_ID fail %d\n", (int)ret);
+
+	ret = mipi_dsi_dcs_read(p->dsi, MIPI_DCS_GET_POWER_MODE, value, 1);
+	if (ret >= 0)
+		dev_err(panel->dev, "MIPI_DCS_GET_POWER_MODE %d | %02x", (int)ret, value[0]);
+	else
+		dev_err(panel->dev, "MIPI_DCS_GET_POWER_MODE fail %d\n", (int)ret);
+
+	ret = mipi_dsi_dcs_read(p->dsi, MIPI_DCS_GET_ADDRESS_MODE, value, 1);
+	if (ret >= 0)
+		dev_err(panel->dev, "MIPI_DCS_GET_ADDRESS_MODE %d | %02x", (int)ret, value[0]);
+	else
+		dev_err(panel->dev, "MIPI_DCS_GET_ADDRESS_MODE fail %d\n", (int)ret);
+
+	ret = mipi_dsi_dcs_read(p->dsi, MIPI_DCS_GET_PIXEL_FORMAT, value, 1);
+	if (ret >= 0)
+		dev_err(panel->dev, "MIPI_DCS_GET_PIXEL_FORMAT %d | %02x", (int)ret, value[0]);
+	else
+		dev_err(panel->dev, "MIPI_DCS_GET_PIXEL_FORMAT fail %d\n", (int)ret);
+
+	ret = mipi_dsi_dcs_read(p->dsi, MIPI_DCS_GET_DISPLAY_MODE, value, 1);
+	if (ret >= 0)
+		dev_err(panel->dev, "MIPI_DCS_GET_DISPLAY_MODE %d | %02x", (int)ret, value[0]);
+	else
+		dev_err(panel->dev, "MIPI_DCS_GET_DISPLAY_MODE fail %d\n", (int)ret);
+
+	ret = mipi_dsi_dcs_read(p->dsi, MIPI_DCS_GET_SIGNAL_MODE, value, 1);
+	if (ret >= 0)
+		dev_err(panel->dev, "MIPI_DCS_GET_SIGNAL_MODE %d | %02x", (int)ret, value[0]);
+	else
+		dev_err(panel->dev, "MIPI_DCS_GET_SIGNAL_MODE fail %d\n", (int)ret);
+
+	ret = mipi_dsi_dcs_read(p->dsi, MIPI_DCS_GET_DIAGNOSTIC_RESULT, value, 1);
+	if (ret >= 0)
+		dev_err(panel->dev, "MIPI_DCS_GET_DIAGNOSTIC_RESULT %d | %02x", (int)ret, value[0]);
+	else
+		dev_err(panel->dev, "MIPI_DCS_GET_DIAGNOSTIC_RESULT fail %d\n", (int)ret);
+
+	/*
+	ret = mipi_dsi_dcs_read(p->dsi, 0xB1, value, 1);
+	if (ret >= 0)
+		dev_err(panel->dev, "LG|0xB1 %d | %02x", (int)ret, value[0]);
+	else
+		dev_err(panel->dev, "LG|0xB1 fail %d\n", (int)ret);
+	*/
+
+	ret = mipi_dsi_dcs_read(p->dsi, 0xDA, value, 1);
+	if (ret >= 0)
+		dev_err(panel->dev, "ID1|0xDA manufacturer %d | %02x", (int)ret, value[0]);
+	else
+		dev_err(panel->dev, "ID1|0xDA manufacturer fail %d\n", (int)ret);
+
+	ret = mipi_dsi_dcs_read(p->dsi, 0xDB, value, 1);
+	if (ret >= 0)
+		dev_err(panel->dev, "ID2|0xDB version %d | %02x", (int)ret, value[0]);
+	else
+		dev_err(panel->dev, "ID2|0xDB version fail %d\n", (int)ret);
+
+	ret = mipi_dsi_dcs_read(p->dsi, 0xDC, value, 1);
+	if (ret >= 0)
+		dev_err(panel->dev, "ID3|0xDC driver %d | %02x", (int)ret, value[0]);
+	else
+		dev_err(panel->dev, "ID3|0xDC driver fail %d\n", (int)ret);
+
+	ret = mipi_dsi_dcs_read(p->dsi, MIPI_DCS_READ_DDB_START, value, 5);
+	if (ret >= 0)
+		dev_err(panel->dev, "MIPI_DCS_READ_DDB_START %d | %02x %02x %02x %02x %02x", (int)ret, value[0], value[1], value[2], value[3], value[4]);
+	else
+		dev_err(panel->dev, "MIPI_DCS_READ_DDB_START fail %d\n", (int)ret);
+
+	for (int x = 0; x < 20; ++x)
+	{
+		ret = mipi_dsi_dcs_read(p->dsi, MIPI_DCS_READ_DDB_CONTINUE, value, 5);
+		if (ret >= 0)
+			dev_err(panel->dev, "MIPI_DCS_READ_DDB_CONTINUE %d | %02x %02x %02x %02x %02x", (int)ret, value[0], value[1], value[2], value[3], value[4]);
+		else
+			dev_err(panel->dev, "MIPI_DCS_READ_DDB_CONTINUE fail %d\n", (int)ret);
+	}
+}
+
 static int panel_simple_prepare(struct drm_panel *panel)
 {
 	struct panel_simple *p = to_panel_simple(panel);
@@ -669,8 +783,35 @@ static int panel_simple_prepare(struct drm_panel *panel)
 				return -EINVAL;
 			}
 		} else {
-			if (p->dsi)
-				panel_simple_xfer_dsi_cmd_seq(p, p->desc->init_seq);
+			if (p->dsi) {
+				struct panel_cmd_seq *init_seq = p->desc->init_seq;
+
+				if (init_seq == &pablito_init_seq) {
+					/* auto-detect display type */
+					u8 vendor, version, driver;
+
+					if (mipi_dsi_dcs_read(p->dsi, 0xDA, &vendor, 1) == 1 &&
+						mipi_dsi_dcs_read(p->dsi, 0xDB, &version, 1) == 1 &&
+						mipi_dsi_dcs_read(p->dsi, 0xDC, &driver, 1) == 1)
+					{
+						if (vendor == 0xff && version == 0xff && driver == 0xff) {
+							// WF70C9SYAB4MNC10 returns 0xff to most DSI queries
+							// NOTE this is the fallback/default, nothing to do here
+
+						} else if (vendor == 0 && version == 0 && driver == 0) {
+							// FL7703NI returns 0x00 to panel info queries
+							init_seq = &pablito_init_seq_FL7703NI;
+							pablito.desc.modes = &pablito_mode_FL7703NI;
+
+						} else {
+							// unknown panel, print debug info
+							panel_simple_debug(panel);
+						}
+					}
+				}
+
+				panel_simple_xfer_dsi_cmd_seq(p, init_seq);
+			}
 		}
 	}
 
@@ -4853,14 +4994,6 @@ static struct platform_driver panel_simple_platform_driver = {
 	.shutdown = panel_simple_platform_shutdown,
 };
 
-struct panel_desc_dsi {
-	struct panel_desc desc;
-
-	unsigned long flags;
-	enum mipi_dsi_pixel_format format;
-	unsigned int lanes;
-};
-
 static const struct drm_display_mode auo_b080uan01_mode = {
 	.clock = 154500,
 	.hdisplay = 1200,
@@ -5076,10 +5209,20 @@ static const struct drm_display_mode pablito_mode = {
 	.flags = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC,
 };
 
-static struct panel_cmd_seq pablito_init_seq;
-static struct panel_cmd_seq pablito_exit_seq;
+static const struct drm_display_mode pablito_mode_FL7703NI = {
+	.clock = 60000,
+	.hdisplay = 280,
+	.hsync_start = 280 + 120,
+	.hsync_end = 280 + 120 + 120,
+	.htotal = 280 + 120 + 120 + 40,
+	.vdisplay = 1424,
+	.vsync_start = 1424 + 16,
+	.vsync_end = 1424 + 16 + 4,
+	.vtotal = 1424 + 16 + 4 + 16,
+	.flags = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC,
+};
 
-static const struct panel_desc_dsi pablito = {
+static struct panel_desc_dsi pablito = {
 	.desc = {
 		.modes = &pablito_mode,
 		.num_modes = 1,
@@ -5198,6 +5341,15 @@ static int panel_simple_dsi_probe(struct mipi_dsi_device *dsi)
 			err = panel_simple_parse_cmd_seq(dev, data, len, &pablito_init_seq);
 			if (err) {
 				dev_err(dev, "failed to parse init sequence\n");
+				return err;
+			}
+		}
+
+		data = of_get_property(dsi->dev.of_node, "panel-init-sequence-FL7703NI", &len);
+		if (data) {
+			err = panel_simple_parse_cmd_seq(dev, data, len, &pablito_init_seq_FL7703NI);
+			if (err) {
+				dev_err(dev, "failed to parse FL7703NI init sequence\n");
 				return err;
 			}
 		}
