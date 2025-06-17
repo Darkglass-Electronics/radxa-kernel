@@ -1164,7 +1164,7 @@ afunc_bind(struct usb_configuration *cfg, struct usb_function *fn)
 
 	setup_descriptor(uac2_opts);
 
-	ret = usb_assign_descriptors(fn, fs_audio_desc, hs_audio_desc, ss_audio_desc,
+	ret = usb_assign_descriptors(fn, NULL, hs_audio_desc, ss_audio_desc,
 				     ss_audio_desc);
 	if (ret)
 		goto err_free_fu;
