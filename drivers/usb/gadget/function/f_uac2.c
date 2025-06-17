@@ -212,7 +212,11 @@ static struct uac2_ac_header_descriptor ac_hdr_desc = {
 	.bcdADC = cpu_to_le16(0x200),
 	.bCategory = UAC2_FUNCTION_IO_BOX,
 	/* .wTotalLength = DYNAMIC */
+#ifdef _DARKGLASS_DEVICE_PABLITO
+	.bmControls = cpu_to_le16(CONTROL_RDONLY << 0), /* has latency control */
+#else
 	.bmControls = 0,
+#endif
 };
 
 /* AC IN Interrupt Endpoint */
@@ -1346,6 +1350,25 @@ in_rq_cur(struct usb_function *fn, const struct usb_ctrlrequest *cr)
 				"%s:%d control_selector=%d TODO!\n",
 				__func__, __LINE__, control_selector);
 		}
+#ifdef _DARKGLASS_DEVICE_PABLITO
+	} else if (control_selector == UAC2_TE_LATENCY) {
+		struct cntrl_cur_lay3 c;
+
+		memset(&c, 0, sizeof(struct cntrl_cur_lay3));
+
+		/* reported latencies with stock thesycon values:
+		 * INPUT: 72 -> 16 * 1.5 + 48 + buffer-size
+		 * OUTPUT: 72 -> 16 * 1.5 + 48
+		 *
+		 * reported latencies with this change:
+		 * INPUT: 108 -> 16 * 3.75 + 48 + buffer-size
+		 * OUTPUT: 108 -> 16 * 3.75 + 48
+		 */
+		c.dCUR = cpu_to_le32(1250000); /* (16 * 3.75) / 48000 * 1000000000 */
+
+		value = min_t(unsigned int, w_length, sizeof(c));
+		memcpy(req->buf, &c, value);
+#endif
 	} else {
 		dev_err(&agdev->gadget->dev,
 			"%s:%d entity_id=%d control_selector=%d TODO!\n",
