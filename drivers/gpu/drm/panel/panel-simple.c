@@ -786,6 +786,7 @@ static int panel_simple_prepare(struct drm_panel *panel)
 			if (p->dsi) {
 				struct panel_cmd_seq *init_seq = p->desc->init_seq;
 
+#if 0
 				if (init_seq == &pablito_init_seq) {
 					/* auto-detect display type */
 					u8 vendor, version, driver;
@@ -809,6 +810,7 @@ static int panel_simple_prepare(struct drm_panel *panel)
 						}
 					}
 				}
+#endif
 
 				panel_simple_xfer_dsi_cmd_seq(p, init_seq);
 			}
