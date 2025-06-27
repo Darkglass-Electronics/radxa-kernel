@@ -41,15 +41,15 @@ struct uac_fu_params {
 struct uac_params {
 	/* playback */
 	int p_chmask;	/* channel mask */
-	int p_srates[UAC_MAX_RATES];	/* available rates in Hz (0 terminated list) */
-	int p_ssize;	/* sample size */
 	struct uac_fu_params p_fu;	/* Feature Unit parameters */
 
 	/* capture */
 	int c_chmask;	/* channel mask */
-	int c_srates[UAC_MAX_RATES];	/* available rates in Hz (0 terminated list) */
-	int c_ssize;	/* sample size */
 	struct uac_fu_params c_fu;	/* Feature Unit parameters */
+
+	/* common */
+	int srates[UAC_MAX_RATES];	/* available rates in Hz (0 terminated list) */
+	int ssize;	/* sample size */
 
 	/* rates are dynamic, in uac_rtd_params */
 
@@ -57,19 +57,6 @@ struct uac_params {
 
 	int req_number; /* number of preallocated requests */
 	int fb_max;	/* upper frequency drift feedback limit per-mil */
-};
-
-enum usb_state_index {
-	SET_INTERFACE_OUT,
-	SET_INTERFACE_IN,
-	SET_SAMPLE_RATE_OUT,
-	SET_SAMPLE_RATE_IN,
-	SET_VOLUME_OUT,
-	SET_VOLUME_IN,
-	SET_MUTE_OUT,
-	SET_MUTE_IN,
-	SET_AUDIO_CLK,
-	SET_USB_STATE_MAX,
 };
 
 enum stream_state_index {
@@ -88,9 +75,7 @@ struct frame_number_data {
 
 struct g_audio {
 	struct device *device;
-	bool usb_state[SET_USB_STATE_MAX];
 	bool stream_state[2];
-	struct work_struct work;
 
 	struct frame_number_data *fn;
 	struct delayed_work ppm_work;
@@ -108,9 +93,6 @@ struct g_audio {
 	unsigned int in_ep_maxpsize;
 	/* Max packet size for all out_ep possible speeds */
 	unsigned int out_ep_maxpsize;
-
-	/* Notify UAC driver about control change */
-	int (*notify)(struct g_audio *g_audio, int unit_id, int cs);
 
 	/* The ALSA Sound Card it represents on the USB-Client side */
 	struct snd_uac_chip *uac;
@@ -157,10 +139,8 @@ void u_audio_stop_capture(struct g_audio *g_audio);
 int u_audio_start_playback(struct g_audio *g_audio);
 void u_audio_stop_playback(struct g_audio *g_audio);
 
-int u_audio_get_capture_srate(struct g_audio *audio_dev, u32 *val);
-int u_audio_set_capture_srate(struct g_audio *audio_dev, int srate);
-int u_audio_get_playback_srate(struct g_audio *audio_dev, u32 *val);
-int u_audio_set_playback_srate(struct g_audio *audio_dev, int srate);
+int u_audio_get_srate(struct g_audio *audio_dev, u32 *val);
+int u_audio_set_srate(struct g_audio *audio_dev, int srate);
 
 int u_audio_get_volume(struct g_audio *g_audio, int playback, s16 *val);
 int u_audio_set_volume(struct g_audio *g_audio, int playback, s16 val);
