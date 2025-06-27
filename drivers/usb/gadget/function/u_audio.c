@@ -29,7 +29,7 @@ enum {
 	UAC_RATE_CTRL,
 };
 
-#define CLK_PPM_GROUP_SIZE	20
+#define CLK_PPM_GROUP_SIZE	10
 
 /* incremented on i2s side for keeping sync */
 uint64_t uac_sync_samples = 0;
