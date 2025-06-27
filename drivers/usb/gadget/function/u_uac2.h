@@ -17,14 +17,13 @@
 #include "uac_common.h"
 
 #define UAC2_DEF_PCHMASK 0x3
-#define UAC2_DEF_PSRATE 48000
-#define UAC2_DEF_PSSIZE 2
 #define UAC2_DEF_PHSBINT 0
 #define UAC2_DEF_CCHMASK 0x3
-#define UAC2_DEF_CSRATE 64000
-#define UAC2_DEF_CSSIZE 2
 #define UAC2_DEF_CHSBINT 0
 #define UAC2_DEF_CSYNC		USB_ENDPOINT_SYNC_ASYNC
+
+#define UAC2_DEF_SRATE 48000
+#define UAC2_DEF_SSIZE 2
 
 #define UAC2_DEF_MUTE_PRESENT	1
 #define UAC2_DEF_VOLUME_PRESENT 1
@@ -38,14 +37,13 @@
 struct f_uac2_opts {
 	struct usb_function_instance	func_inst;
 	int				p_chmask;
-	int				p_srates[UAC_MAX_RATES];
-	int				p_ssize;
 	u8				p_hs_bint;
 	int				c_chmask;
-	int				c_srates[UAC_MAX_RATES];
-	int				c_ssize;
 	int				c_sync;
 	u8				c_hs_bint;
+
+	int				srates[UAC_MAX_RATES];
+	int				ssize;
 
 	bool			p_mute_present;
 	bool			p_volume_present;
