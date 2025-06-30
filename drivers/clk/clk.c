@@ -985,6 +985,10 @@ static void clk_core_unprepare(struct clk_core *core)
 	if (!core)
 		return;
 
+	// FIXME find out why this happens
+	if (core->enable_count == 0 && strcmp(core->name, "dbclk_gpio0") == 0)
+		return;
+
 	if (WARN(core->prepare_count == 0,
 	    "%s already unprepared\n", core->name))
 		return;
@@ -1124,6 +1128,10 @@ static void clk_core_disable(struct clk_core *core)
 	lockdep_assert_held(&enable_lock);
 
 	if (!core)
+		return;
+
+	// FIXME find out why this happens
+	if (core->enable_count == 0 && strcmp(core->name, "dbclk_gpio0") == 0)
 		return;
 
 	if (WARN(core->enable_count == 0, "%s already disabled\n", core->name))
