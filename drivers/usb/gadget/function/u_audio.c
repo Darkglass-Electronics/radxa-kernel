@@ -226,7 +226,7 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 	unsigned long long pitched_rate_mil, p_pktsize_residue_mil,
 			residue_frames_mil, div_result;
 	int buf_count;
-	bool fb_ep_in_use;
+	bool active_userspace, fb_ep_in_use;
 
 	/* i/f shutting down */
 	if (!prm->ep_enabled) {
@@ -250,6 +250,7 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 
 	hw_ptr = __atomic_load_n(&mdata->bufpos_kernel, __ATOMIC_ACQUIRE);
 	user_ptr = __atomic_load_n(&mdata->bufpos_userspace, __ATOMIC_ACQUIRE);
+	active_userspace = __atomic_load_n(&mdata->active_userspace, __ATOMIC_ACQUIRE) == 2;
 
 	if (prm->playback) {
 		/* safely check if feedback endpoint is in use */
@@ -308,9 +309,9 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 		}
 		pr_debug("remains uac->p_residue_mil %llu\n", uac->p_residue_mil);
 
-		buf_count = positive_modulo((int)user_ptr - (int)hw_ptr, mdata->buffer_size) / prm->framesize;
+		if (active_userspace && !fb_ep_in_use) {
+			buf_count = positive_modulo((int)user_ptr - (int)hw_ptr, mdata->buffer_size) / prm->framesize;
 
-		if (!fb_ep_in_use) {
 			int adjust_dir = 0;
 			if (uac->stats.out_buf_too_much) {
 				adjust_dir = -1;
@@ -343,41 +344,42 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 
 		req->actual = req->length;
 	}
-	else {
-		buf_count = positive_modulo((int)hw_ptr - (int)user_ptr, mdata->buffer_size) / prm->framesize;
-		if (buf_count > CAPTURE_MAX_QUEUE) {
-			uac->stats.out_buf_too_much = 1;
-			dev_err(audio_dev->device, "capture queue above limit %d", buf_count);
-		}
-		else if (buf_count < CAPTURE_MIN_QUEUE) {
-			uac->stats.out_buf_too_little = 1;
-			dev_err(audio_dev->device, "capture queue below limit %d", buf_count);
-		}
-	}
 
 	/* Update statistics */
-	if (prm->playback) {
-		if (buf_count > uac->stats.buf_p_max) {
-			uac->stats.buf_p_max = buf_count;
-		}
+	if (active_userspace) {
+		if (prm->playback) {
+			if (buf_count > uac->stats.buf_p_max) {
+				uac->stats.buf_p_max = buf_count;
+			}
 
-		if (req->actual < uac->stats.req_p_min) {
-			uac->stats.req_p_min = req->actual;
+			if (req->actual < uac->stats.req_p_min) {
+				uac->stats.req_p_min = req->actual;
+			}
+			if (req->actual > uac->stats.req_p_max) {
+				uac->stats.req_p_max = req->actual;
+			}
 		}
-		if (req->actual > uac->stats.req_p_max) {
-			uac->stats.req_p_max = req->actual;
-		}
-	}
-	else {
-		if (buf_count < uac->stats.buf_c_min) {
-			uac->stats.buf_c_min = buf_count;
-		}
+		else {
+			buf_count = positive_modulo((int)hw_ptr - (int)user_ptr, mdata->buffer_size) / prm->framesize;
+			if (buf_count > CAPTURE_MAX_QUEUE) {
+				uac->stats.out_buf_too_much = 1;
+				dev_err(audio_dev->device, "capture queue above limit %d", buf_count);
+			}
+			else if (buf_count < CAPTURE_MIN_QUEUE) {
+				uac->stats.out_buf_too_little = 1;
+				dev_err(audio_dev->device, "capture queue below limit %d", buf_count);
+			}
 
-		if (req->actual < uac->stats.req_c_min) {
-			uac->stats.req_c_min = req->actual;
-		}
-		if (req->actual > uac->stats.req_c_max) {
-			uac->stats.req_c_max = req->actual;
+			if (buf_count < uac->stats.buf_c_min) {
+				uac->stats.buf_c_min = buf_count;
+			}
+
+			if (req->actual < uac->stats.req_c_min) {
+				uac->stats.req_c_min = req->actual;
+			}
+			if (req->actual > uac->stats.req_c_max) {
+				uac->stats.req_c_max = req->actual;
+			}
 		}
 	}
 
@@ -406,16 +408,18 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 		}
 	}
 
-	if (prm->playback) {
-		buf_count -= req->actual / prm->framesize;
-		if (buf_count < uac->stats.buf_p_min) {
-			uac->stats.buf_p_min = buf_count;
+	if (active_userspace) {
+		if (prm->playback) {
+			buf_count -= req->actual / prm->framesize;
+			if (buf_count < uac->stats.buf_p_min) {
+				uac->stats.buf_p_min = buf_count;
+			}
 		}
-	}
-	else {
-		buf_count += req->length / prm->framesize;
-		if (buf_count > uac->stats.buf_c_max) {
-			uac->stats.buf_c_max = buf_count;
+		else {
+			buf_count += req->length / prm->framesize;
+			if (buf_count > uac->stats.buf_c_max) {
+				uac->stats.buf_c_max = buf_count;
+			}
 		}
 	}
 
@@ -425,7 +429,7 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 
 	flush_kernel_vmap_range(&mdata->bufpos_kernel, sizeof(uint32_t));
 
-	if (prm->playback && !fb_ep_in_use) {
+	if (prm->playback && active_userspace && !fb_ep_in_use) {
 		uac->stats.fb_cnt += req->length / prm->framesize;
 		if (uac->stats.fb_cnt >= mdata->sample_rate) {
 
@@ -1035,7 +1039,7 @@ static void ppm_calculate_work(struct work_struct *data)
 	struct g_audio *g_audio = container_of(data, struct g_audio,
 					       ppm_work.work);
 	struct usb_gadget *gadget = g_audio->gadget;
-	struct snd_uac_chip *uac = g_audio->uac;
+	// struct snd_uac_chip *uac = g_audio->uac;
 	uint32_t frame_number, fn_msec, clk_msec;
 	struct frame_number_data *fn = g_audio->fn;
 	uint64_t time_now, time_msec_tmp;
