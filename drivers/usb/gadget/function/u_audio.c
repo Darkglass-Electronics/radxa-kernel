@@ -84,19 +84,7 @@ struct uac_rtd_params {
 	spinlock_t lock; /* lock for control transfers */
 };
 
-struct snd_uac_chip {
-	struct g_audio *audio_dev;
-
-	struct uac_rtd_params p_prm;
-	struct uac_rtd_params c_prm;
-
-	int srate; /* selected samplerate */
-	uint64_t fb_received_time; /* time of last received feedback ep */
-
-	/* pre-calculated values for playback iso completion */
-	unsigned long long p_residue_mil;
-	unsigned int p_interval;
-
+struct uac_stats {
 	/* min/max buffer levels */
 	int buf_p_min;
 	int buf_p_max;
@@ -119,6 +107,22 @@ struct snd_uac_chip {
 	/* capture buffer state shared with playback stream */
 	int out_buf_too_much;
 	int out_buf_too_little;
+};
+
+struct snd_uac_chip {
+	struct g_audio *audio_dev;
+
+	struct uac_rtd_params p_prm;
+	struct uac_rtd_params c_prm;
+
+	int srate; /* selected samplerate */
+	uint64_t fb_received_time; /* time of last received feedback ep */
+
+	/* pre-calculated values for playback iso completion */
+	unsigned long long p_residue_mil;
+	unsigned int p_interval;
+
+	struct uac_stats stats;
 };
 
 static struct snd_uac_chip *_uac;
@@ -178,25 +182,33 @@ static inline int32_t positive_modulo(int32_t i, int32_t n) {
     return (i % n + n) % n;
 }
 
-#define PLAYBACK_MIN_QUEUE (24)
-#define PLAYBACK_MAX_QUEUE (80)
-#define CAPTURE_MIN_QUEUE (16)
-#define CAPTURE_MAX_QUEUE (96)
+#define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 8
+#define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 8
+#define AUDIO_BRIDGE_DEVICE_BUFFER_SIZE 16
 
+// 16 -> bufsize
+#define CAPTURE_MIN_QUEUE (AUDIO_BRIDGE_DEVICE_BUFFER_SIZE)
+// 96 -> bufsize * (75% ringbuffer)
+#define CAPTURE_MAX_QUEUE (AUDIO_BRIDGE_DEVICE_BUFFER_SIZE * (AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS / 2 + AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS / 4))
 
-static void reset_stats(struct snd_uac_chip *uac)
+// 24 -> bufsize + (50% bufsize)
+#define PLAYBACK_MIN_QUEUE (AUDIO_BRIDGE_DEVICE_BUFFER_SIZE + AUDIO_BRIDGE_DEVICE_BUFFER_SIZE / 2)
+// 80 -> bufsize * (50% ringbuffer) + bufsize
+#define PLAYBACK_MAX_QUEUE (AUDIO_BRIDGE_DEVICE_BUFFER_SIZE * (AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS / 2 + 1))
+
+static void reset_stats(struct uac_stats *stats)
 {
-	uac->buf_p_min = 65535;
-	uac->buf_p_max = -65535;
-	uac->buf_c_min = 65535;
-	uac->buf_c_max = -65535;
-	uac->req_p_min = 65535;
-	uac->req_p_max = 0;
-	uac->req_c_min = 65535;
-	uac->req_c_max = 0;
-	uac->adjusted_samples_up = 0;
-	uac->adjusted_samples_down = 0;
-	uac->fb_cnt = 0;
+	stats->buf_p_min = 65535;
+	stats->buf_p_max = -65535;
+	stats->buf_c_min = 65535;
+	stats->buf_c_max = -65535;
+	stats->req_p_min = 65535;
+	stats->req_p_max = 0;
+	stats->req_c_min = 65535;
+	stats->req_c_max = 0;
+	stats->adjusted_samples_up = 0;
+	stats->adjusted_samples_down = 0;
+	stats->fb_cnt = 0;
 }
 
 static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
@@ -300,32 +312,32 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 
 		if (!fb_ep_in_use) {
 			int adjust_dir = 0;
-			if (uac->out_buf_too_much) {
+			if (uac->stats.out_buf_too_much) {
 				adjust_dir = -1;
 			}
 			else if (buf_count > PLAYBACK_MAX_QUEUE) {
 				dev_err(audio_dev->device, "playback queue above limit %d", buf_count);
 				adjust_dir = 1;
 			}
-			else if (uac->out_buf_too_little) {
+			else if (uac->stats.out_buf_too_little) {
 				adjust_dir = 1;
 			}
 			else if (buf_count > 0 && buf_count < PLAYBACK_MIN_QUEUE) {
 				dev_err(audio_dev->device, "playback queue below limit %d", buf_count);
 				adjust_dir = -1;
 			}
-			uac->out_buf_too_much = 0;
-			uac->out_buf_too_little = 0;
+			uac->stats.out_buf_too_much = 0;
+			uac->stats.out_buf_too_little = 0;
 
 			if (adjust_dir == 1 && req->length < prm->max_psize) {
 				req->length += prm->framesize;
 				//uac->p_residue_mil -= prm->framesize * p_interval_mil;
-				uac->adjusted_samples_up++;
+				uac->stats.adjusted_samples_up++;
 			}
 			else if (adjust_dir == -1) {
 				req->length -= prm->framesize;
 				//uac->p_residue_mil += prm->framesize * p_interval_mil;
-				uac->adjusted_samples_down--;
+				uac->stats.adjusted_samples_down--;
 			}
 		}
 
@@ -334,38 +346,38 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 	else {
 		buf_count = positive_modulo((int)hw_ptr - (int)user_ptr, mdata->buffer_size) / prm->framesize;
 		if (buf_count > CAPTURE_MAX_QUEUE) {
-			uac->out_buf_too_much = 1;
+			uac->stats.out_buf_too_much = 1;
 			dev_err(audio_dev->device, "capture queue above limit %d", buf_count);
 		}
 		else if (buf_count < CAPTURE_MIN_QUEUE) {
-			uac->out_buf_too_little = 1;
+			uac->stats.out_buf_too_little = 1;
 			dev_err(audio_dev->device, "capture queue below limit %d", buf_count);
 		}
 	}
 
 	/* Update statistics */
 	if (prm->playback) {
-		if (buf_count > uac->buf_p_max) {
-			uac->buf_p_max = buf_count;
+		if (buf_count > uac->stats.buf_p_max) {
+			uac->stats.buf_p_max = buf_count;
 		}
 
-		if (req->actual < uac->req_p_min) {
-			uac->req_p_min = req->actual;
+		if (req->actual < uac->stats.req_p_min) {
+			uac->stats.req_p_min = req->actual;
 		}
-		if (req->actual > uac->req_p_max) {
-			uac->req_p_max = req->actual;
+		if (req->actual > uac->stats.req_p_max) {
+			uac->stats.req_p_max = req->actual;
 		}
 	}
 	else {
-		if (buf_count < uac->buf_c_min) {
-			uac->buf_c_min = buf_count;
+		if (buf_count < uac->stats.buf_c_min) {
+			uac->stats.buf_c_min = buf_count;
 		}
 
-		if (req->actual < uac->req_c_min) {
-			uac->req_c_min = req->actual;
+		if (req->actual < uac->stats.req_c_min) {
+			uac->stats.req_c_min = req->actual;
 		}
-		if (req->actual > uac->req_c_max) {
-			uac->req_c_max = req->actual;
+		if (req->actual > uac->stats.req_c_max) {
+			uac->stats.req_c_max = req->actual;
 		}
 	}
 
@@ -396,14 +408,14 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 
 	if (prm->playback) {
 		buf_count -= req->actual / prm->framesize;
-		if (buf_count < uac->buf_p_min) {
-			uac->buf_p_min = buf_count;
+		if (buf_count < uac->stats.buf_p_min) {
+			uac->stats.buf_p_min = buf_count;
 		}
 	}
 	else {
 		buf_count += req->length / prm->framesize;
-		if (buf_count > uac->buf_c_max) {
-			uac->buf_c_max = buf_count;
+		if (buf_count > uac->stats.buf_c_max) {
+			uac->stats.buf_c_max = buf_count;
 		}
 	}
 
@@ -414,8 +426,8 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 	flush_kernel_vmap_range(&mdata->bufpos_kernel, sizeof(uint32_t));
 
 	if (prm->playback && !fb_ep_in_use) {
-		uac->fb_cnt += req->length / prm->framesize;
-		if (uac->fb_cnt >= mdata->sample_rate) {
+		uac->stats.fb_cnt += req->length / prm->framesize;
+		if (uac->stats.fb_cnt >= mdata->sample_rate) {
 
 			/* this is just copied from u_audio_set_fback_frequency */
 			unsigned long long freq = uac->srate << 4;
@@ -424,11 +436,11 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 
 			printk(KERN_CRIT "uac NO FB %x\n", fb);
 			printk(KERN_CRIT "uac buf play min %d max %d capture min %d max %d adj up %d down %d\n",
-					uac->buf_p_min, uac->buf_p_max, uac->buf_c_min, uac->buf_c_max,
-					uac->adjusted_samples_up, uac->adjusted_samples_down);
+					uac->stats.buf_p_min, uac->stats.buf_p_max, uac->stats.buf_c_min, uac->stats.buf_c_max,
+					uac->stats.adjusted_samples_up, uac->stats.adjusted_samples_down);
 			printk(KERN_CRIT "uac req play min %d max %d capture min %d max %d\n",
-					uac->req_p_min, uac->req_p_max, uac->req_c_min, uac->req_c_max);
-			reset_stats(uac);
+					uac->stats.req_p_min, uac->stats.req_p_max, uac->stats.req_c_min, uac->stats.req_c_max);
+			reset_stats(&uac->stats);
 		}
 	}
 
@@ -474,14 +486,14 @@ static void u_audio_iso_fback_complete(struct usb_ep *ep,
 	if (usb_ep_queue(ep, req, GFP_ATOMIC))
 		dev_err(audio_dev->device, "%d Error!\n", __LINE__);
 
-	uac->fb_cnt++;
-	if (uac->fb_cnt >= 1024) {
+	uac->stats.fb_cnt++;
+	if (uac->stats.fb_cnt >= 1024) {
 		printk(KERN_CRIT "uac fb %x\n", fb);
 		printk(KERN_CRIT "uac buf play min %d max %d capture min %d max %d\n",
-				uac->buf_p_min, uac->buf_p_max, uac->buf_c_min, uac->buf_c_max);
+				uac->stats.buf_p_min, uac->stats.buf_p_max, uac->stats.buf_c_min, uac->stats.buf_c_max);
 		printk(KERN_CRIT "uac req play min %d max %d capture min %d max %d\n",
-				uac->req_p_min, uac->req_p_max, uac->req_c_min, uac->req_c_max);
-		reset_stats(uac);
+				uac->stats.req_p_min, uac->stats.req_p_max, uac->stats.req_c_min, uac->stats.req_c_max);
+		reset_stats(&uac->stats);
 	}
 }
 
@@ -1177,7 +1189,7 @@ int g_audio_setup(struct g_audio *g_audio, const char *pcm_name,
 		goto fail;
 	}
 
-	reset_stats(uac);
+	reset_stats(&uac->stats);
 
 	if (c_chmask) {
 		struct uac_rtd_params *prm = &uac->c_prm;
