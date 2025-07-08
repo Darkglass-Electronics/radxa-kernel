@@ -57,9 +57,6 @@ struct snd_pcm_hw_params_old {
 	unsigned char reserved[64];
 };
 
-/* HACK */
-extern uint64_t uac_sync_samples;
-
 #ifdef CONFIG_SND_SUPPORT_OLD_API
 #define SNDRV_PCM_IOCTL_HW_REFINE_OLD _IOWR('A', 0x10, struct snd_pcm_hw_params_old)
 #define SNDRV_PCM_IOCTL_HW_PARAMS_OLD _IOWR('A', 0x11, struct snd_pcm_hw_params_old)
@@ -1429,8 +1426,6 @@ static int snd_pcm_do_start(struct snd_pcm_substream *substream,
 {
 	if (substream->runtime->trigger_master != substream)
 		return 0;
-	if (substream->stream == SNDRV_PCM_STREAM_CAPTURE && substream->runtime->channels == 8)
-		__atomic_store_n(&uac_sync_samples, 1, __ATOMIC_SEQ_CST);
 	return substream->ops->trigger(substream, SNDRV_PCM_TRIGGER_START);
 }
 
@@ -1503,9 +1498,6 @@ static int snd_pcm_do_stop(struct snd_pcm_substream *substream,
 {
 	if (substream->runtime->trigger_master == substream &&
 	    snd_pcm_running(substream)) {
-		if (substream->stream == SNDRV_PCM_STREAM_CAPTURE && substream->runtime->channels == 8) {
-			__atomic_store_n(&uac_sync_samples, 0, __ATOMIC_SEQ_CST);
-		}
 		substream->ops->trigger(substream, SNDRV_PCM_TRIGGER_STOP);
 		substream->runtime->stop_operating = true;
 	}
@@ -3620,12 +3612,8 @@ static __poll_t snd_pcm_poll(struct file *file, poll_table *wait)
 	case SNDRV_PCM_STATE_RUNNING:
 	case SNDRV_PCM_STATE_PREPARED:
 	case SNDRV_PCM_STATE_PAUSED:
-		if (avail >= runtime->control->avail_min) {
-			if (substream->stream == SNDRV_PCM_STREAM_CAPTURE && runtime->channels == 8) {
-				__atomic_add_fetch(&uac_sync_samples, avail, __ATOMIC_SEQ_CST);
-			}
+		if (avail >= runtime->control->avail_min)
 			mask = ok;
-		}
 		break;
 	case SNDRV_PCM_STATE_DRAINING:
 		if (substream->stream == SNDRV_PCM_STREAM_CAPTURE) {
