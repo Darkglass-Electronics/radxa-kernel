@@ -31,8 +31,10 @@ enum {
 
 #define CLK_PPM_GROUP_SIZE	10
 
+#if 0
 /* incremented on i2s side for keeping sync */
 uint64_t uac_sync_samples = 0;
+#endif
 
 /* shared mapped data */
 struct uac_mmap_data {
@@ -66,6 +68,7 @@ struct uac_rtd_params {
 	struct uac_mmap_data* mdata;
 
 	unsigned int max_psize;	/* MaxPacketSize of endpoint */
+	unsigned int framesize;
 
 	struct usb_request **reqs;
 
@@ -93,13 +96,35 @@ struct snd_uac_chip {
 	/* pre-calculated values for playback iso completion */
 	unsigned long long p_residue_mil;
 	unsigned int p_interval;
-	unsigned int p_framesize;
+
+	/* min/max buffer levels */
+	int buf_p_min;
+	int buf_p_max;
+	int buf_c_min;
+	int buf_c_max;
+
+	/* min/max request sizes */
+	int req_p_min;
+	int req_p_max;
+	int req_c_min;
+	int req_c_max;
+
+	/* number of requests adjusted in size */
+	int adjusted_samples_up;
+	int adjusted_samples_down;
+
+	/* statistics counter */
+	int fb_cnt;
+
+	/* capture buffer state shared with playback stream */
+	int out_buf_too_much;
+	int out_buf_too_little;
 };
 
 static struct snd_uac_chip *_uac;
 static struct class *audio_class;
 
-static void u_audio_set_fback_frequency(enum usb_device_speed speed,
+static uint32_t u_audio_set_fback_frequency(enum usb_device_speed speed,
 					struct usb_ep *out_ep,
 					unsigned long long freq,
 					unsigned int pitch,
@@ -146,11 +171,38 @@ static void u_audio_set_fback_frequency(enum usb_device_speed speed,
 	ff = DIV_ROUND_CLOSEST_ULL((freq * pitch), 1953125);
 
 	*(__le32 *)buf = cpu_to_le32(ff);
+	return ff;
+}
+
+static inline int32_t positive_modulo(int32_t i, int32_t n) {
+    return (i % n + n) % n;
+}
+
+#define PLAYBACK_MIN_QUEUE (24)
+#define PLAYBACK_MAX_QUEUE (80)
+#define CAPTURE_MIN_QUEUE (16)
+#define CAPTURE_MAX_QUEUE (96)
+
+
+static void reset_stats(struct snd_uac_chip *uac)
+{
+	uac->buf_p_min = 65535;
+	uac->buf_p_max = -65535;
+	uac->buf_c_min = 65535;
+	uac->buf_c_max = -65535;
+	uac->req_p_min = 65535;
+	uac->req_p_max = 0;
+	uac->req_c_min = 65535;
+	uac->req_c_max = 0;
+	uac->adjusted_samples_up = 0;
+	uac->adjusted_samples_down = 0;
+	uac->fb_cnt = 0;
 }
 
 static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 {
 	unsigned int pending;
+	unsigned int user_ptr;
 	unsigned int hw_ptr;
 	int status = req->status;
 	struct uac_rtd_params *prm = req->context;
@@ -161,6 +213,8 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 	unsigned int frames, p_pktsize;
 	unsigned long long pitched_rate_mil, p_pktsize_residue_mil,
 			residue_frames_mil, div_result;
+	int buf_count;
+	bool fb_ep_in_use;
 
 	/* i/f shutting down */
 	if (!prm->ep_enabled) {
@@ -179,7 +233,18 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 		pr_debug("%s: iso_complete status(%d) %d/%d\n",
 			__func__, status, req->actual, req->length);
 
+	// NOTE this assumes `bufpos_userspace` is right after `bufpos_kernel`
+	invalidate_kernel_vmap_range(&mdata->bufpos_kernel, sizeof(uint32_t) * 2);
+
+	hw_ptr = __atomic_load_n(&mdata->bufpos_kernel, __ATOMIC_ACQUIRE);
+	user_ptr = __atomic_load_n(&mdata->bufpos_userspace, __ATOMIC_ACQUIRE);
+
 	if (prm->playback) {
+		/* safely check if feedback endpoint is in use */
+		fb_ep_in_use = uac->c_prm.active
+			&& uac->fb_received_time != 0
+			&& ktime_get_raw() - uac->fb_received_time < 5000000 /* 5ms */;
+
 		/*
 		 * For each IN packet, take the quotient of the current data
 		 * rate and the endpoint's interval as the base packet size.
@@ -189,7 +254,7 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 		unsigned long long p_interval_mil = uac->p_interval * 1000000ULL;
 
 		ppm = - audio_dev->params.ppm;
-		if (uac->c_prm.active && uac->fb_received_time != 0 && ktime_get_raw() - uac->fb_received_time < 5000000 /* 5ms */)
+		if (fb_ep_in_use)
 			ppm += (prm->mdata->extra_ppm + uac->c_prm.mdata->extra_ppm) / 2;
 		else
 			ppm += prm->mdata->extra_ppm;
@@ -204,12 +269,12 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 				uac->srate, 1000000 + ppm, p_interval_mil, frames);
 
 		p_pktsize = min_t(unsigned int,
-					uac->p_framesize * frames,
+					prm->framesize * frames,
 					ep->maxpacket);
 
 		if (p_pktsize < ep->maxpacket) {
 			residue_frames_mil = pitched_rate_mil - frames * p_interval_mil;
-			p_pktsize_residue_mil = uac->p_framesize * residue_frames_mil;
+			p_pktsize_residue_mil = prm->framesize * residue_frames_mil;
 		} else
 			p_pktsize_residue_mil = 0;
 
@@ -224,18 +289,85 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 		div_result = uac->p_residue_mil;
 		do_div(div_result, uac->p_interval);
 		do_div(div_result, 1000000);
-		if ((unsigned int) div_result >= uac->p_framesize) {
-			req->length += uac->p_framesize;
-			uac->p_residue_mil -= uac->p_framesize * p_interval_mil;
+		if ((unsigned int) div_result >= prm->framesize) {
+			req->length += prm->framesize;
+			uac->p_residue_mil -= prm->framesize * p_interval_mil;
 			pr_debug("increased req length to %d\n", req->length);
 		}
 		pr_debug("remains uac->p_residue_mil %llu\n", uac->p_residue_mil);
 
+		buf_count = positive_modulo((int)user_ptr - (int)hw_ptr, mdata->buffer_size) / prm->framesize;
+
+		if (!fb_ep_in_use) {
+			int adjust_dir = 0;
+			if (uac->out_buf_too_much) {
+				adjust_dir = -1;
+			}
+			else if (buf_count > PLAYBACK_MAX_QUEUE) {
+				dev_err(audio_dev->device, "playback queue above limit %d", buf_count);
+				adjust_dir = 1;
+			}
+			else if (uac->out_buf_too_little) {
+				adjust_dir = 1;
+			}
+			else if (buf_count > 0 && buf_count < PLAYBACK_MIN_QUEUE) {
+				dev_err(audio_dev->device, "playback queue below limit %d", buf_count);
+				adjust_dir = -1;
+			}
+			uac->out_buf_too_much = 0;
+			uac->out_buf_too_little = 0;
+
+			if (adjust_dir == 1 && req->length < prm->max_psize) {
+				req->length += prm->framesize;
+				//uac->p_residue_mil -= prm->framesize * p_interval_mil;
+				uac->adjusted_samples_up++;
+			}
+			else if (adjust_dir == -1) {
+				req->length -= prm->framesize;
+				//uac->p_residue_mil += prm->framesize * p_interval_mil;
+				uac->adjusted_samples_down--;
+			}
+		}
+
 		req->actual = req->length;
 	}
+	else {
+		buf_count = positive_modulo((int)hw_ptr - (int)user_ptr, mdata->buffer_size) / prm->framesize;
+		if (buf_count > CAPTURE_MAX_QUEUE) {
+			uac->out_buf_too_much = 1;
+			dev_err(audio_dev->device, "capture queue above limit %d", buf_count);
+		}
+		else if (buf_count < CAPTURE_MIN_QUEUE) {
+			uac->out_buf_too_little = 1;
+			dev_err(audio_dev->device, "capture queue below limit %d", buf_count);
+		}
+	}
 
-	__atomic_load_n(&mdata->bufpos_userspace, __ATOMIC_ACQUIRE);
-	hw_ptr = mdata->bufpos_kernel;
+	/* Update statistics */
+	if (prm->playback) {
+		if (buf_count > uac->buf_p_max) {
+			uac->buf_p_max = buf_count;
+		}
+
+		if (req->actual < uac->req_p_min) {
+			uac->req_p_min = req->actual;
+		}
+		if (req->actual > uac->req_p_max) {
+			uac->req_p_max = req->actual;
+		}
+	}
+	else {
+		if (buf_count < uac->buf_c_min) {
+			uac->buf_c_min = buf_count;
+		}
+
+		if (req->actual < uac->req_c_min) {
+			uac->req_c_min = req->actual;
+		}
+		if (req->actual > uac->req_c_max) {
+			uac->req_c_max = req->actual;
+		}
+	}
 
 	/* Pack USB load in mmap ring buffer */
 	pending = mdata->buffer_size - hw_ptr;
@@ -262,11 +394,43 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 		}
 	}
 
+	if (prm->playback) {
+		buf_count -= req->actual / prm->framesize;
+		if (buf_count < uac->buf_p_min) {
+			uac->buf_p_min = buf_count;
+		}
+	}
+	else {
+		buf_count += req->length / prm->framesize;
+		if (buf_count > uac->buf_c_max) {
+			uac->buf_c_max = buf_count;
+		}
+	}
+
 	/* update hw_ptr after data is copied to memory */
 	hw_ptr = (hw_ptr + req->actual) % mdata->buffer_size;
 	__atomic_store_n(&mdata->bufpos_kernel, hw_ptr, __ATOMIC_RELEASE);
 
 	flush_kernel_vmap_range(&mdata->bufpos_kernel, sizeof(uint32_t));
+
+	if (prm->playback && !fb_ep_in_use) {
+		uac->fb_cnt += req->length / prm->framesize;
+		if (uac->fb_cnt >= mdata->sample_rate) {
+
+			/* this is just copied from u_audio_set_fback_frequency */
+			unsigned long long freq = uac->srate << 4;
+			unsigned int pitch = 1000000 - audio_dev->params.ppm + prm->mdata->extra_ppm;
+			uint32_t fb = DIV_ROUND_CLOSEST_ULL((freq * pitch), 1953125);
+
+			printk(KERN_CRIT "uac NO FB %x\n", fb);
+			printk(KERN_CRIT "uac buf play min %d max %d capture min %d max %d adj up %d down %d\n",
+					uac->buf_p_min, uac->buf_p_max, uac->buf_c_min, uac->buf_c_max,
+					uac->adjusted_samples_up, uac->adjusted_samples_down);
+			printk(KERN_CRIT "uac req play min %d max %d capture min %d max %d\n",
+					uac->req_p_min, uac->req_p_max, uac->req_c_min, uac->req_c_max);
+			reset_stats(uac);
+		}
+	}
 
 	if (usb_ep_queue(ep, req, GFP_ATOMIC))
 		dev_err(audio_dev->device, "%d Error!\n", __LINE__);
@@ -279,6 +443,7 @@ static void u_audio_iso_fback_complete(struct usb_ep *ep,
 	struct snd_uac_chip *uac = prm->uac;
 	struct g_audio *audio_dev = uac->audio_dev;
 	int status = req->status;
+	uint32_t fb;
 
 	/* i/f shutting down */
 	if (!prm->fb_ep_enabled) {
@@ -302,12 +467,22 @@ static void u_audio_iso_fback_complete(struct usb_ep *ep,
 		uac->fb_received_time = ktime_get_raw();
 	}
 
-	u_audio_set_fback_frequency(audio_dev->gadget->speed, audio_dev->out_ep,
+	fb = u_audio_set_fback_frequency(audio_dev->gadget->speed, audio_dev->out_ep,
 				    uac->srate, 1000000 - audio_dev->params.ppm + prm->mdata->extra_ppm,
 				    req->buf);
 
 	if (usb_ep_queue(ep, req, GFP_ATOMIC))
 		dev_err(audio_dev->device, "%d Error!\n", __LINE__);
+
+	uac->fb_cnt++;
+	if (uac->fb_cnt >= 1024) {
+		printk(KERN_CRIT "uac fb %x\n", fb);
+		printk(KERN_CRIT "uac buf play min %d max %d capture min %d max %d\n",
+				uac->buf_p_min, uac->buf_p_max, uac->buf_c_min, uac->buf_c_max);
+		printk(KERN_CRIT "uac req play min %d max %d capture min %d max %d\n",
+				uac->req_p_min, uac->req_p_max, uac->req_c_min, uac->req_c_max);
+		reset_stats(uac);
+	}
 }
 
 /* First page access. */
@@ -702,11 +877,9 @@ int u_audio_start_playback(struct g_audio *audio_dev)
 		factor = 8000;
 
 	/* pre-compute some values for iso_complete() */
-	uac->p_framesize = params->ssize *
-			    num_channels(params->p_chmask);
 	uac->p_interval = factor / (1 << (ep_desc->bInterval - 1));
 	p_pktsize = min_t(unsigned int,
-				uac->p_framesize *
+				prm->framesize *
 					(uac->srate / uac->p_interval),
 				ep->maxpacket);
 
@@ -859,7 +1032,9 @@ static void ppm_calculate_work(struct work_struct *data)
 	static int32_t ppm_sum;
 	int32_t cnt = fn->second % CLK_PPM_GROUP_SIZE;
 
-	// time_now = ktime_get_raw();
+#if 1
+	time_now = ktime_get_raw();
+#else
 	time_now = __atomic_load_n(&uac_sync_samples, __ATOMIC_SEQ_CST);
 
 	if (time_now < uac->srate) {
@@ -875,6 +1050,8 @@ static void ppm_calculate_work(struct work_struct *data)
 	}
 
 	time_now = time_now * 1000000000ULL / uac->srate;
+#endif
+
 	frame_number = gadget->ops->get_frame(gadget);
 
 	if (g_audio->fn->time_last &&
@@ -1000,12 +1177,16 @@ int g_audio_setup(struct g_audio *g_audio, const char *pcm_name,
 		goto fail;
 	}
 
+	reset_stats(uac);
+
 	if (c_chmask) {
 		struct uac_rtd_params *prm = &uac->c_prm;
+		channels = num_channels(c_chmask);
 
 		spin_lock_init(&prm->lock);
 		uac->c_prm.playback = false;
 		uac->c_prm.uac = uac;
+		prm->framesize = params->ssize * channels;
 		prm->max_psize = g_audio->out_ep_maxpsize;
 
 		prm->reqs = kcalloc(params->req_number,
@@ -1024,8 +1205,7 @@ int g_audio_setup(struct g_audio *g_audio, const char *pcm_name,
 			goto fail;
 		}
 
-		channels = num_channels(c_chmask);
-		buffer_size = 8192 * channels * params->ssize;
+		buffer_size = 8192 * prm->framesize;
 		prm->mdata = vmalloc_user(sizeof(struct uac_mmap_data) + buffer_size);
 		if (!prm->mdata) {
 			prm->max_psize = 0;
@@ -1041,10 +1221,12 @@ int g_audio_setup(struct g_audio *g_audio, const char *pcm_name,
 
 	if (p_chmask) {
 		struct uac_rtd_params *prm = &uac->p_prm;
+		channels = num_channels(p_chmask);
 
 		spin_lock_init(&prm->lock);
 		uac->p_prm.playback = true;
 		uac->p_prm.uac = uac;
+		prm->framesize = params->ssize * channels;
 		prm->max_psize = g_audio->in_ep_maxpsize;
 
 		prm->reqs = kcalloc(params->req_number,
@@ -1063,8 +1245,7 @@ int g_audio_setup(struct g_audio *g_audio, const char *pcm_name,
 			goto fail;
 		}
 
-		channels = num_channels(p_chmask);
-		buffer_size = 8192 * channels * params->ssize;
+		buffer_size = 8192 * prm->framesize;
 		prm->mdata = vmalloc_user(sizeof(struct uac_mmap_data) + buffer_size);
 		if (!prm->mdata) {
 			prm->max_psize = 0;
