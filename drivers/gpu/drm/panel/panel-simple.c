@@ -5151,29 +5151,59 @@ static const struct panel_desc_dsi osd101t2045_53ts = {
 	.lanes = 4,
 };
 
+#define WF70C9SYAB4MNC10_CLK 43
+#define WF70C9SYAB4MNC10_HDISP 280
+#define WF70C9SYAB4MNC10_HFP 150
+#define WF70C9SYAB4MNC10_HS 24
+#define WF70C9SYAB4MNC10_HBP 40
+#define WF70C9SYAB4MNC10_VDISP 1424
+#define WF70C9SYAB4MNC10_VFP 12
+#define WF70C9SYAB4MNC10_VS 6
+#define WF70C9SYAB4MNC10_VBP 10
 static const struct drm_display_mode pablito_mode = {
-	.clock = 43000,
-	.hdisplay = 280,
-	.hsync_start = 280 + 150,
-	.hsync_end = 280 + 150 + 24,
-	.htotal = 280 + 150 + 24 + 40,
-	.vdisplay = 1424,
-	.vsync_start = 1424 + 12,
-	.vsync_end = 1424 + 12 + 6,
-	.vtotal = 1424 + 12 + 6 + 10,
+	.clock = WF70C9SYAB4MNC10_CLK * 1000,
+	.hdisplay = WF70C9SYAB4MNC10_HDISP,
+	.hsync_start = WF70C9SYAB4MNC10_HDISP + WF70C9SYAB4MNC10_HFP,
+	.hsync_end = WF70C9SYAB4MNC10_HDISP + WF70C9SYAB4MNC10_HFP + WF70C9SYAB4MNC10_HS,
+	.htotal = WF70C9SYAB4MNC10_HDISP + WF70C9SYAB4MNC10_HFP + WF70C9SYAB4MNC10_HS + WF70C9SYAB4MNC10_HBP,
+	.vdisplay = WF70C9SYAB4MNC10_VDISP,
+	.vsync_start = WF70C9SYAB4MNC10_VDISP + WF70C9SYAB4MNC10_VFP,
+	.vsync_end = WF70C9SYAB4MNC10_VDISP + WF70C9SYAB4MNC10_VFP + WF70C9SYAB4MNC10_VS,
+	.vtotal = WF70C9SYAB4MNC10_VDISP + WF70C9SYAB4MNC10_VFP + WF70C9SYAB4MNC10_VS + WF70C9SYAB4MNC10_VBP,
 	.flags = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC,
 };
 
+#define FL7703NI_CLK 60
+#define FL7703NI_VDISP 1424
+#if 0
+// WFN0700D8
+#define FL7703NI_HDISP 280
+#define FL7703NI_HFP 120
+#define FL7703NI_HS 120
+#define FL7703NI_HBP 160
+#define FL7703NI_VFP 16
+#define FL7703NI_VS 4
+#define FL7703NI_VBP 16
+#else
+// QV069HDU-N80-2QP0
+#define FL7703NI_HDISP 600
+#define FL7703NI_VFP 15
+#define FL7703NI_VS 3
+#define FL7703NI_VBP 16
+#define FL7703NI_HFP 40
+#define FL7703NI_HS 30
+#define FL7703NI_HBP 60
+#endif
 static const struct drm_display_mode pablito_mode_FL7703NI = {
-	.clock = 60000,
-	.hdisplay = 280,
-	.hsync_start = 280 + 120,
-	.hsync_end = 280 + 120 + 120,
-	.htotal = 280 + 120 + 120 + 40,
-	.vdisplay = 1424,
-	.vsync_start = 1424 + 16,
-	.vsync_end = 1424 + 16 + 4,
-	.vtotal = 1424 + 16 + 4 + 16,
+	.clock = FL7703NI_CLK * 1000,
+	.hdisplay = FL7703NI_HDISP,
+	.hsync_start = FL7703NI_HDISP + FL7703NI_HFP,
+	.hsync_end = FL7703NI_HDISP + FL7703NI_HFP + FL7703NI_HS,
+	.htotal = FL7703NI_HDISP + FL7703NI_HFP + FL7703NI_HS + FL7703NI_HBP,
+	.vdisplay = FL7703NI_VDISP,
+	.vsync_start = FL7703NI_VDISP + FL7703NI_VFP,
+	.vsync_end = FL7703NI_VDISP + FL7703NI_VFP + FL7703NI_VS,
+	.vtotal = FL7703NI_VDISP + FL7703NI_VFP + FL7703NI_VS + FL7703NI_VBP,
 	.flags = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC,
 };
 
