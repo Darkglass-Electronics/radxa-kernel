@@ -5175,7 +5175,7 @@ static const struct drm_display_mode pablito_mode = {
 
 #define FL7703NI_CLK 60
 #define FL7703NI_VDISP 1424
-#if 0
+#if 1
 // WFN0700D8
 #define FL7703NI_HDISP 280
 #define FL7703NI_HFP 120
