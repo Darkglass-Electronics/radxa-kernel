@@ -24,6 +24,11 @@ module_param_named(quiescent, bl_quiescent, bool, 0600);
 MODULE_PARM_DESC(quiescent,
 		 "pwm bl quiescent when reboot quiescent [default=false]");
 
+// pwm_bl.off
+static bool bl_off;
+module_param_named(off, bl_off, bool, 0644);
+MODULE_PARM_DESC(off, "pwm bl off on boot");
+
 struct pwm_bl_data {
 	struct pwm_device	*pwm;
 	struct device		*dev;
@@ -285,6 +290,9 @@ static int pwm_backlight_parse_dt(struct device *dev,
 			return ret;
 
 		data->dft_brightness = value;
+
+		if (bl_off)
+			data->dft_brightness = 0;
 
 		/*
 		 * This property is optional, if is set enables linear
