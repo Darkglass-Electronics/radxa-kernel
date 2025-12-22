@@ -407,6 +407,9 @@ int led_classdev_register_ext(struct device *parent,
 	list_add_tail(&led_cdev->node, &leds_list);
 	up_write(&leds_list_lock);
 
+	if (!led_cdev->default_brightness)
+		led_cdev->default_brightness = LED_FULL;
+
 	if (!led_cdev->max_brightness)
 		led_cdev->max_brightness = LED_FULL;
 

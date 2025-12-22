@@ -378,6 +378,8 @@ static int is31fl319x_parse_child_fw(const struct device *dev,
 	if (ret < 0 && ret != -EINVAL) /* is optional */
 		return ret;
 
+	fwnode_property_read_u32(child, "default-brightness", &cdev->default_brightness);
+
 	led->max_microamp = is31->cdef->current_default;
 	ret = fwnode_property_read_u32(child, "led-max-microamp", &led->max_microamp);
 	if (!ret) {

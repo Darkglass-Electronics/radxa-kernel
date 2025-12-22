@@ -70,6 +70,7 @@ struct led_hw_trigger_type {
 struct led_classdev {
 	const char		*name;
 	unsigned int brightness;
+	unsigned int default_brightness;
 	unsigned int max_brightness;
 	int			 flags;
 
