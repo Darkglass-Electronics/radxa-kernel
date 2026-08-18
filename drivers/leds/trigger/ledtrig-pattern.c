@@ -363,9 +363,13 @@ static const struct attribute_group *pattern_trig_groups[] = {
 
 static void pattern_init(struct led_classdev *led_cdev)
 {
+	int err;
+#ifdef _DARKGLASS_DEVICE_PABLITO
+	unsigned int size = 4;
+	u32 pattern[4] = { led_cdev->default_brightness, 1000, 0, 1000 };
+#else
 	unsigned int size = 0;
 	u32 *pattern;
-	int err;
 
 	pattern = led_get_default_pattern(led_cdev, &size);
 	if (!pattern)
@@ -375,14 +379,17 @@ static void pattern_init(struct led_classdev *led_cdev)
 		dev_warn(led_cdev->dev, "Expected pattern of tuples\n");
 		goto out;
 	}
+#endif
 
 	err = pattern_trig_store_patterns(led_cdev, NULL, pattern, size, false);
 	if (err < 0)
 		dev_warn(led_cdev->dev,
 			 "Pattern initialization failed with error %d\n", err);
 
+#ifndef _DARKGLASS_DEVICE_PABLITO
 out:
 	kfree(pattern);
+#endif
 }
 
 static int pattern_trig_activate(struct led_classdev *led_cdev)
