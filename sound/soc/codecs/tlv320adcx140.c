@@ -38,6 +38,7 @@ struct adcx140_priv {
 
 	// Darkglass tweaks: enable DAC together with ADC
 	struct gpio_desc *gpio_dac;
+	struct gpio_desc *gpio_mute;
 };
 
 static const char * const gpo_config_names[] = {
@@ -685,13 +686,15 @@ static int adcx140_reset(struct adcx140_priv *adcx140)
 {
 	int ret = 0;
 
-	if (adcx140->gpio_reset && adcx140->gpio_dac) {
+	if (adcx140->gpio_reset && adcx140->gpio_dac && adcx140->gpio_mute) {
+		gpiod_direction_output(adcx140->gpio_mute, 1);
 		gpiod_direction_output(adcx140->gpio_reset, 0);
 		gpiod_direction_output(adcx140->gpio_dac, 0);
 		/* 8.4.1: wait for hw shutdown (25ms) + >= 1ms */
 		usleep_range(30000, 100000);
 		gpiod_direction_output(adcx140->gpio_reset, 1);
 		gpiod_direction_output(adcx140->gpio_dac, 1);
+		gpiod_direction_output(adcx140->gpio_mute, 0);
 	} else {
 		ret = regmap_write(adcx140->regmap, ADCX140_SW_RESET,
 				   ADCX140_RESET);
@@ -1323,6 +1326,11 @@ static int adcx140_i2c_probe(struct i2c_client *i2c)
 						      "dac", GPIOD_OUT_LOW);
 	if (IS_ERR(adcx140->gpio_dac))
 		dev_info(&i2c->dev, "DAC GPIO not defined\n");
+
+	adcx140->gpio_mute = devm_gpiod_get_optional(adcx140->dev,
+						      "mute", GPIOD_OUT_LOW);
+	if (IS_ERR(adcx140->gpio_mute))
+		dev_info(&i2c->dev, "Mute GPIO not defined\n");
 
 	adcx140->supply_areg = devm_regulator_get_optional(adcx140->dev,
 							   "areg");

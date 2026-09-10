@@ -8,7 +8,6 @@
 #include <sound/soc.h>
 
 struct pablito_ctrl_priv {
-	struct gpio_desc *gpiod_dac_mute;
 	struct gpio_desc *gpiod_hp1;
 	struct gpio_desc *gpiod_hp2;
 	struct gpio_desc *gpiod_xlr_gl;
@@ -16,7 +15,6 @@ struct pablito_ctrl_priv {
 	struct gpio_desc *gpiod_capture_gl;
 
 	int hp_gain;
-	bool dac_mute;
 	bool xlr_gl;
 	bool fx_exp;
 	bool capture_gl;
@@ -81,29 +79,6 @@ static int pablito_ctrl_switch_info(struct snd_kcontrol *kcontrol, struct snd_ct
 	uinfo->value.integer.min = 0;
 	uinfo->value.integer.max = 1;
 	return 0;
-}
-
-static int pablito_ctrl_dac_mute_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_component *c = snd_soc_kcontrol_component(kcontrol);
-	struct pablito_ctrl_priv *priv = snd_soc_component_get_drvdata(c);
-
-	ucontrol->value.integer.value[0] = priv->dac_mute;
-	return 0;
-}
-
-static int pablito_ctrl_dac_mute_put(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_component *c = snd_soc_kcontrol_component(kcontrol);
-	struct pablito_ctrl_priv *priv = snd_soc_component_get_drvdata(c);
-	int changed = 0;
-
-	if (priv->dac_mute != ucontrol->value.integer.value[0]) {
-		priv->dac_mute = ucontrol->value.integer.value[0];
-		gpiod_set_value(priv->gpiod_dac_mute, priv->dac_mute);
-		changed = 1;
-	}
-	return changed;
 }
 
 static int pablito_ctrl_xlr_gl_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
@@ -178,14 +153,6 @@ static int pablito_ctrl_capt_gl_put(struct snd_kcontrol *kcontrol, struct snd_ct
 static const struct snd_kcontrol_new pablito_snd_controls[] = {
 	{
 		.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-		.name = "DAC Mute",
-		.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-		.info = pablito_ctrl_switch_info,
-		.get = pablito_ctrl_dac_mute_get,
-		.put = pablito_ctrl_dac_mute_put
-	},
-	{
-		.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 		.name = "Headphone Gain",
 		.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
 		.info = pablito_ctrl_headphone_info,
@@ -234,10 +201,6 @@ static int pablito_ctrl_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, priv);
 
 	// load all gpios
-	priv->gpiod_dac_mute = devm_gpiod_get_optional(dev, "dac-mute", GPIOD_OUT_LOW);
-	if (IS_ERR(priv->gpiod_dac_mute))
-		return dev_err_probe(dev, PTR_ERR(priv->gpiod_dac_mute), "Failed to get 'dac-mute' gpio");
-
 	priv->gpiod_hp1 = devm_gpiod_get_optional(dev, "hp1", GPIOD_OUT_LOW);
 	if (IS_ERR(priv->gpiod_hp1))
 		return dev_err_probe(dev, PTR_ERR(priv->gpiod_hp1), "Failed to get 'hp1' gpio");
@@ -260,12 +223,10 @@ static int pablito_ctrl_probe(struct platform_device *pdev)
 
 	// force initial known state
 	priv->hp_gain = 0;
-	priv->dac_mute = false;
 	priv->xlr_gl = false;
 	priv->fx_exp = false;
 	priv->capture_gl = false;
 
-	gpiod_set_value(priv->gpiod_dac_mute, 0);
 	gpiod_set_value(priv->gpiod_hp1, 1);
 	gpiod_set_value(priv->gpiod_hp2, 1);
 	gpiod_set_value(priv->gpiod_xlr_gl, 0);
