@@ -238,6 +238,7 @@ int uvcg_queue_init(struct uvc_video_queue *queue, struct device *dev, enum v4l2
 	if (cdev->gadget->sg_supported) {
 #endif
 		queue->queue.mem_ops = &vb2_dma_sg_memops;
+		queue->queue.gfp_flags = __GFP_DMA32;
 		queue->use_sg = 1;
 	} else {
 		queue->queue.mem_ops = &vb2_vmalloc_memops;
