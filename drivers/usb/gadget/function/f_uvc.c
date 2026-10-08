@@ -311,6 +311,9 @@ uvc_function_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 		return -EINVAL;
 	}
 
+	if (!uvc->func_connected)
+		return -EINVAL;
+
 	/* Stall too big requests. */
 	if (le16_to_cpu(ctrl->wLength) > UVC_MAX_REQUEST_SIZE)
 		return -EINVAL;
@@ -437,7 +440,7 @@ uvc_function_set_alt(struct usb_function *f, unsigned interface, unsigned alt)
 			if (uvc->state != UVC_STATE_CONNECTED)
 				return 0;
 
-			if (!uvc->video.ep)
+			if (!uvc->video.ep || !uvc->func_connected)
 				return -EINVAL;
 
 			INFO(cdev, "reset UVC\n");
@@ -1337,7 +1340,6 @@ static struct usb_function *uvc_alloc(struct usb_function_instance *fi)
 	uvc->func.free_func = uvc_free;
 	uvc->func.suspend = uvc_function_suspend;
 	uvc->func.resume = uvc_function_resume;
-	uvc->func.bind_deactivated = true;
 
 	return &uvc->func;
 

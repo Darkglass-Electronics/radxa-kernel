@@ -510,7 +510,6 @@ uvc_v4l2_subscribe_event(struct v4l2_fh *fh,
 	if (sub->type == UVC_EVENT_SETUP) {
 		uvc->func_connected = true;
 		handle->is_uvc_app_handle = true;
-		uvc_function_connect(uvc);
 	}
 
 	return 0;
@@ -518,7 +517,6 @@ uvc_v4l2_subscribe_event(struct v4l2_fh *fh,
 
 static void uvc_v4l2_disable(struct uvc_device *uvc)
 {
-	uvc_function_disconnect(uvc);
 	uvcg_video_enable(&uvc->video, 0);
 	uvcg_free_buffers(&uvc->video.queue);
 	uvc->func_connected = false;
